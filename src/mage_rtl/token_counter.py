@@ -8,6 +8,8 @@ from llama_index.core.base.llms.types import ChatMessage, ChatResponse
 from llama_index.core.llms.llm import LLM
 from llama_index.llms.anthropic import Anthropic
 from llama_index.llms.openai import OpenAI
+from llama_index.llms.gemini import Gemini
+from llama_index.llms.deepseek import DeepSeek
 from pydantic import BaseModel
 
 from .gen_config import get_exp_setting
@@ -110,6 +112,10 @@ class TokenCounter:
             self.encoding = tiktoken.encoding_for_model(model)
         elif isinstance(llm, Anthropic):
             self.encoding = llm.tokenizer
+        elif isinstance(llm, Gemini):
+            self.encoding = None
+        elif isinstance(llm, DeepSeek):
+            self.encoding = None
         else:
             raise Exception(f"gen_config: No tokenizer for model {model}")
         logger.info(f"Found tokenizer for model '{model}'")

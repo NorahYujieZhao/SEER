@@ -4,6 +4,8 @@ import config
 from llama_index.core.llms.llm import LLM
 from llama_index.llms.anthropic import Anthropic
 from llama_index.llms.openai import OpenAI
+from llama_index.llms.gemini import Gemini
+from llama_index.llms.deepseek import DeepSeek
 from pydantic import BaseModel
 
 from .log_utils import get_logger
@@ -35,9 +37,13 @@ class Config:
 
 def get_llm(**kwargs) -> LLM:
     err_msgs = []
-    for LLM_func in [OpenAI, Anthropic]:
+    # for LLM_func in [OpenAI, Gemini, Anthropic, DeepSeek]:
+    for LLM_func in [DeepSeek]:
         try:
-            llm: LLM = LLM_func(**kwargs)
+            if LLM_func == Gemini:
+                llm: LLM = LLM_func(**kwargs, api_base="https://api.bianxie.ai/v1/chat/completions")
+            else:
+                llm: LLM = LLM_func(**kwargs, api_base="https://api.bianxie.ai/v1")
             _ = llm.complete("Say 'Hi'")
             break
         except Exception as e:
