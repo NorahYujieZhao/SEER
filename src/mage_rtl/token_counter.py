@@ -106,7 +106,7 @@ class TokenCounter:
         self.cur_tag = ""
         self.max_parallel_requests: int = 10
         model = llm.metadata.model_name
-        if isinstance(llm, OpenAI):
+        if isinstance(model, OpenAI):
             self.encoding = tiktoken.encoding_for_model(model)
         elif isinstance(llm, Anthropic):
             self.encoding = llm.tokenizer
