@@ -1,0 +1,215 @@
+Traceback (most recent call last):
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/httpx/_transports/default.py", line 72, in map_httpcore_exceptions
+    yield
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/httpx/_transports/default.py", line 236, in handle_request
+    resp = self._pool.handle_request(req)
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/httpcore/_sync/connection_pool.py", line 216, in handle_request
+    raise exc from None
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/httpcore/_sync/connection_pool.py", line 196, in handle_request
+    response = connection.handle_request(
+        pool_request.request
+    )
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/httpcore/_sync/http_proxy.py", line 344, in handle_request
+    return self._connection.handle_request(request)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/httpcore/_sync/http11.py", line 143, in handle_request
+    raise exc
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/httpcore/_sync/http11.py", line 113, in handle_request
+    ) = self._receive_response_headers(**kwargs)
+        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/httpcore/_sync/http11.py", line 186, in _receive_response_headers
+    event = self._receive_event(timeout=timeout)
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/httpcore/_sync/http11.py", line 238, in _receive_event
+    raise RemoteProtocolError(msg)
+httpcore.RemoteProtocolError: Server disconnected without sending a response.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/openai/_base_client.py", line 1003, in _request
+    response = self._client.send(
+        request,
+        stream=stream or self._should_stream_response_body(request=request),
+        **kwargs,
+    )
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/httpx/_client.py", line 926, in send
+    response = self._send_handling_auth(
+        request,
+    ...<2 lines>...
+        history=[],
+    )
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/httpx/_client.py", line 954, in _send_handling_auth
+    response = self._send_handling_redirects(
+        request,
+        follow_redirects=follow_redirects,
+        history=history,
+    )
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/httpx/_client.py", line 991, in _send_handling_redirects
+    response = self._send_single_request(request)
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/httpx/_client.py", line 1027, in _send_single_request
+    response = transport.handle_request(request)
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/httpx/_transports/default.py", line 235, in handle_request
+    with map_httpcore_exceptions():
+         ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/opt/anaconda3/envs/dac/lib/python3.13/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/httpx/_transports/default.py", line 89, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.RemoteProtocolError: Server disconnected without sending a response.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/zhaozhaozhaozhao/Unambigious_prompt/src/mage_rtl/agent.py", line 246, in _run
+    self.run_instance(spec)
+    ~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Users/zhaozhaozhaozhao/Unambigious_prompt/src/mage_rtl/agent.py", line 81, in run_instance
+    testbench, interface = self.tb_gen.chat(spec)
+                           ~~~~~~~~~~~~~~~~^^^^^^
+  File "/Users/zhaozhaozhaozhao/Unambigious_prompt/src/mage_rtl/tb_generator.py", line 303, in chat
+    response = self.generate(self.history + self.get_order_prompt_messages())
+  File "/Users/zhaozhaozhaozhao/Unambigious_prompt/src/mage_rtl/tb_generator.py", line 229, in generate
+    resp, token_cnt = self.token_counter.count_chat(messages)
+                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/Users/zhaozhaozhaozhao/Unambigious_prompt/src/mage_rtl/token_counter.py", line 153, in count_chat
+    response = llm.chat(
+        messages, top_p=settings.top_p, temperature=settings.temperature
+    )
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/wrapt/wrappers.py", line 669, in __call__
+    return self._self_wrapper(self.__wrapped__, self._self_instance,
+           ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            args, kwargs)
+            ^^^^^^^^^^^^^
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/llama_index/core/instrumentation/dispatcher.py", line 322, in wrapper
+    result = func(*args, **kwargs)
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/llama_index/llms/openai_like/base.py", line 117, in chat
+    return super().chat(messages, **kwargs)
+           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/wrapt/wrappers.py", line 669, in __call__
+    return self._self_wrapper(self.__wrapped__, self._self_instance,
+           ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            args, kwargs)
+            ^^^^^^^^^^^^^
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/llama_index/core/instrumentation/dispatcher.py", line 322, in wrapper
+    result = func(*args, **kwargs)
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/llama_index/core/llms/callbacks.py", line 173, in wrapped_llm_chat
+    f_return_val = f(_self, messages, **kwargs)
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/llama_index/llms/openai/base.py", line 374, in chat
+    return chat_fn(messages, **kwargs)
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/llama_index/llms/openai/base.py", line 107, in wrapper
+    return retry(f)(self, *args, **kwargs)
+           ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/tenacity/__init__.py", line 336, in wrapped_f
+    return copy(f, *args, **kw)
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/tenacity/__init__.py", line 475, in __call__
+    do = self.iter(retry_state=retry_state)
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/tenacity/__init__.py", line 376, in iter
+    result = action(retry_state)
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/tenacity/__init__.py", line 418, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/tenacity/__init__.py", line 185, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/opt/anaconda3/envs/dac/lib/python3.13/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "/opt/anaconda3/envs/dac/lib/python3.13/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/tenacity/__init__.py", line 478, in __call__
+    result = fn(*args, **kwargs)
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/llama_index/llms/openai/base.py", line 470, in _chat
+    response = client.chat.completions.create(
+        messages=message_dicts,
+        stream=False,
+        **self._get_model_kwargs(**kwargs),
+    )
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/openai/_utils/_utils.py", line 279, in wrapper
+    return func(*args, **kwargs)
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/openai/resources/chat/completions/completions.py", line 879, in create
+    return self._post(
+           ~~~~~~~~~~^
+        "/chat/completions",
+        ^^^^^^^^^^^^^^^^^^^^
+    ...<40 lines>...
+        stream_cls=Stream[ChatCompletionChunk],
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/openai/_base_client.py", line 1290, in post
+    return cast(ResponseT, self.request(cast_to, opts, stream=stream, stream_cls=stream_cls))
+                           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/openai/_base_client.py", line 967, in request
+    return self._request(
+           ~~~~~~~~~~~~~^
+        cast_to=cast_to,
+        ^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+        retries_taken=retries_taken,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/openai/_base_client.py", line 1027, in _request
+    return self._retry_request(
+           ~~~~~~~~~~~~~~~~~~~^
+        input_options,
+        ^^^^^^^^^^^^^^
+    ...<4 lines>...
+        response_headers=None,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/openai/_base_client.py", line 1105, in _retry_request
+    return self._request(
+           ~~~~~~~~~~~~~^
+        options=options,
+        ^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+        stream_cls=stream_cls,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/openai/_base_client.py", line 1027, in _request
+    return self._retry_request(
+           ~~~~~~~~~~~~~~~~~~~^
+        input_options,
+        ^^^^^^^^^^^^^^
+    ...<4 lines>...
+        response_headers=None,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/openai/_base_client.py", line 1105, in _retry_request
+    return self._request(
+           ~~~~~~~~~~~~~^
+        options=options,
+        ^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+        stream_cls=stream_cls,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/openai/_base_client.py", line 1027, in _request
+    return self._retry_request(
+           ~~~~~~~~~~~~~~~~~~~^
+        input_options,
+        ^^^^^^^^^^^^^^
+    ...<4 lines>...
+        response_headers=None,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/openai/_base_client.py", line 1105, in _retry_request
+    return self._request(
+           ~~~~~~~~~~~~~^
+        options=options,
+        ^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+        stream_cls=stream_cls,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/opt/anaconda3/envs/dac/lib/python3.13/site-packages/openai/_base_client.py", line 1037, in _request
+    raise APIConnectionError(request=request) from err
+openai.APIConnectionError: Connection error.

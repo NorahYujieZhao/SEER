@@ -1,0 +1,5 @@
+[2025-02-20 11:36:58,345 - mage_rtl.sim_reviewer - INFO] Golden simulation is_pass: False, 
+output: {
+    "stdout": "",
+    "stderr": "./output_run_test_deepseek_0/VERILOG_EVAL_V2_Prob011_norgate/rtl.sv: No such file or directory\nPreprocessor failed with 1 errors.\n./output_run_test_deepseek_0/VERILOG_EVAL_V2_Prob011_norgate/sim_golden.vvp: Unable to open input file.\n"
+}
