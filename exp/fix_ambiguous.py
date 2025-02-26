@@ -7,9 +7,7 @@ from llama_index.llms.anthropic import Anthropic
 # from llama_index.llms.openai import OpenAI
 from llama_index.llms.gemini import Gemini
 from llama_index.llms.deepseek import DeepSeek
-
-# use this for Deepseek r1 and claude-3-5-sonnet
-from openai import OpenAI
+from llama_index.llms.openai import OpenAI
 
 from llama_index.core.base.llms.types import ChatMessage, MessageRole
 
@@ -40,22 +38,30 @@ DO NOT include any other information in your response, like 'json', 'reasoning' 
 """
 
 class ambiguous_fixer:
-    def __init__(self, model: str, api_key: str, base_url: str):
+    def __init__(self, model: str, api_key: str, max_tokens: int):
         self.model = model
         # self.llm =OpenAI(model=args.model, api_key=api_key, api_base="https://api.bianxie.ai/v1")
         # self.llm = Anthropic(model=args.model, api_key=api_key, base_url="https://api.bianxie.ai/v1")
-        self.llm = OpenAI(api_key=api_key, base_url=base_url)
+        self.llm = OpenAI(model=model, api_key=api_key)
     
     def run(self, input_spec: str, reasons: str) -> str:
-        
-        response = self.llm.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": GENERATION_PROMPT.format(input_spec=input_spec, reasons=reasons)},
-            ],
-            stream=False
-        )
-        logger.info(f"Get response from {self.model}: {response}")
+        msg = [
+            ChatMessage(
+                content=SYSTEM_PROMPT,
+                role=MessageRole.SYSTEM
+            ),
+            ChatMessage(
+                content=GENERATION_PROMPT.format(
+                    input_spec=input_spec,
+                    reasons=reasons
+                ),
+                role=MessageRole.USER
+            )
+        ]
 
-        return response.choices[0].message.content
+        response = self.llm.chat(
+            messages=msg
+        )
+        
+        logger.info(f"Get response from {self.model}: {response}")
+        return response.message.content

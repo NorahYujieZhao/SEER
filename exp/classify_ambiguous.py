@@ -269,11 +269,12 @@ As a reminder, please directly provide the content without adding any extra comm
 """
 
 class ambiguous_classifier:
-    def __init__(self, model: str, api_key: str, base_url: str):
+    def __init__(self, model: str, api_key: str, max_tokens: int):
         self.model = model
         # self.llm =OpenAI(model=args.model, api_key=api_key, api_base="https://api.bianxie.ai/v1")
-        # self.llm = Anthropic(model=args.model, api_key=api_key, base_url="https://api.bianxie.ai/v1")
-        self.llm = OpenAI(api_key=api_key, base_url=base_url)
+        #self.llm = Anthropic(model=args.model, api_key=api_key, base_url="https://api.bianxie.ai/v1")
+        #self.llm = OpenAI(api_key=api_key, base_url=base_url)
+        self.llm = Anthropic(model=model,api_key=api_key, max_tokens=max_tokens)
 
     def run(self, input_spec: str) -> Dict:
         # msg = [
@@ -290,27 +291,38 @@ class ambiguous_classifier:
 
         # use this for Deepseek r1 and claude-3-5-sonnet
         msg = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": GENERATION_PROMPT.format(input_spec=input_spec, example_prompt = CLASSIFICATION_4_SHOT_EXAMPLES)},
-            {"role": "user", "content": ORDER_PROMPT.format(output_format="".join(json.dumps(EXAMPLE_OUTPUT_FORMAT, indent=4)))},
-            # {"role": "user", "content": EXTRA_ORDER_PROMPT},
-        ]
+        ChatMessage(
+            content=SYSTEM_PROMPT, 
+            role=MessageRole.SYSTEM
+        ),
+        ChatMessage(
+            content=GENERATION_PROMPT.format(
+                input_spec=input_spec, 
+                example_prompt=CLASSIFICATION_4_SHOT_EXAMPLES
+            ), 
+            role=MessageRole.USER
+        ),
+        ChatMessage(
+            content=ORDER_PROMPT.format(
+                output_format="".join(json.dumps(EXAMPLE_OUTPUT_FORMAT, indent=4))
+            ), 
+            role=MessageRole.USER
+        ),
+    ]
 
-        response = self.llm.chat.completions.create(
-            model=self.model,
-            messages=msg,
-            stream=False
+        response = self.llm.chat(
+        messages=msg
         )
-
         logger.info(f"Get response from {self.model}: {response}")
         try:
             # output_json_obj: Dict = json.loads(response.message.content, strict=False)
 
             # use this for Deepseek r1 and claude-3-5-sonnet
             if self.model == "claude-3-5-sonnet-20241022":
-                output_json_obj: Dict = json.loads("".join(response.choices[0].message.content.split("\n")[1:]), strict=False)
+                #output_json_obj: Dict = json.loads("".join(response.choices[0].message.content.split("\n")[1:]), strict=False)
+                output_json_obj = json.loads(response.message.content, strict=False)
             else:
-                output_json_obj: Dict = json.loads(response.choices[0].message.content, strict=False)
+                output_json_obj: Dict = json.loads(response.message.content, strict=False)
 
             classification = output_json_obj["classification"]
             logger.info(f"Succeed to parse response, Classification: {classification}")
