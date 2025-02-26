@@ -319,10 +319,9 @@ class ambiguous_classifier:
 
             # use this for Deepseek r1 and claude-3-5-sonnet
             if self.model == "claude-3-5-sonnet-20241022":
-                #output_json_obj: Dict = json.loads("".join(response.choices[0].message.content.split("\n")[1:]), strict=False)
-                output_json_obj = json.loads(response.message.content, strict=False)
+                output_json_obj: Dict = json.loads("".join(response.choices[0].message.content.split("\n")[1:]), strict=False)
             else:
-                output_json_obj: Dict = json.loads(response.message.content, strict=False)
+                output_json_obj: Dict = json.loads(response.choices[0].message.content, strict=False)
 
             classification = output_json_obj["classification"]
             logger.info(f"Succeed to parse response, Classification: {classification}")
