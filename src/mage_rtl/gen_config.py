@@ -36,22 +36,23 @@ class Config:
 
 
 def get_llm(**kwargs) -> LLM:
-    err_msgs = []
-    # for LLM_func in [OpenAI, Gemini, Anthropic, DeepSeek]:
-    for LLM_func in [DeepSeek]:
-        try:
-            if LLM_func == Gemini:
-                llm: LLM = LLM_func(**kwargs, api_base="https://api.bianxie.ai/v1/chat/completions")
-            else:
-                llm: LLM = LLM_func(**kwargs, api_base="https://api.bianxie.ai/v1")
-            _ = llm.complete("Say 'Hi'")
-            break
-        except Exception as e:
-            err_msgs.append(str(e))
+    model = kwargs['model']
+    if model.startswith("gpt"):
+        LLM_func = OpenAI
+    elif model.startswith("claude"):
+        LLM_func = Anthropic
+    elif model.startswith("models/gemini") or model.startswith("gemini"):
+        LLM_func = Gemini
     else:
+        LLM_func = DeepSeek
+
+    try:
+        llm: LLM = LLM_func(**kwargs)
+        _ = llm.complete("Say 'Hi'")
+    except Exception as e:
         raise Exception(
             f"gen_config: Failed to get LLM. Error msgs include:\n"
-            + "\n".join(err_msgs)
+            + str(e)
         )
     return llm
 

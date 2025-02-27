@@ -4,14 +4,15 @@ from typing import Dict
 from llama_index.core.llms import LLM
 
 from llama_index.llms.anthropic import Anthropic
-# from llama_index.llms.openai import OpenAI
+from llama_index.llms.openai import OpenAI
 from llama_index.llms.gemini import Gemini
 from llama_index.llms.deepseek import DeepSeek
 
 # use this for Deepseek r1 and claude-3-5-sonnet
-from openai import OpenAI
+# from openai import OpenAI
 
 from llama_index.core.base.llms.types import ChatMessage, MessageRole
+from mage_rtl.gen_config import get_llm
 
 from mage_rtl.log_utils import get_logger, set_log_dir, switch_log_to_file, switch_log_to_stdout
 from mage_rtl.prompts import ORDER_PROMPT
@@ -82,7 +83,7 @@ EXAMPLE_OUTPUT_FORMAT = {
     "classification": "ambiguous or unambiguous (do not use any other words)",
 }
 
-CLASSIFICATION_4_SHOT_EXAMPLES=r"""
+CLASSIFICATION_5_SHOT_EXAMPLES=r"""
 Here are some examples of RTL ambiguity detection:
 Example 1:
 <example>
@@ -258,6 +259,76 @@ Example 4:
         - Synchronous output registration
 ",
     "classification": "unambiguous"
+
+Example 5:
+<example>
+    "input_spec": "
+// Module: memory_controller
+// Interface:
+//   input logic clk, rst_n
+//   input logic [7:0] addr_offset
+//   input logic [31:0] base_addr
+//   output logic [31:0] phys_addr
+//   output logic refresh_ack
+//
+// Specification:
+// 1. Physical address = base_addr + addr_offset when request valid
+// 2. Auto-refresh must occur every 100 cycles if no active requests
+// 3. refresh_ack should assert within 2 cycles of refresh start
+// 4. Address calculation uses unsigned arithmetic
+    ",
+    "reasoning": r"
+[Ambiguity 1]  
+    Source Clause: "Physical address = base_addr + addr_offset when request valid"
+    Type: Unspecified Calculation
+    Conflict Implementations:
+        // Version A: Simple addition
+        assign phys_addr = base_addr + addr_offset;
+        
+        // Version B: Byte-offset scaling
+        assign phys_addr = base_addr + (addr_offset << 2);  // Assume 4-byte granularity
+
+    Waveform Impact:
+        Version A: Address increments by 1 per offset
+        Version B: Address increments by 4 per offset
+        
+    Clarification: "addr_offset represents 4-byte words, calculation should be base_addr + (offset << 2)"
+    
+    SVA Assertion:
+        assert property (@(posedge clk) 
+            request_valid |-> phys_addr == (base_addr + (addr_offset << 2)));
+
+[Ambiguity 2]  
+    Source Clause: "Auto-refresh must occur every 100 cycles if no active requests"
+    Type: Timing Window Overlap
+    Conflict Implementations:
+        // Version X: Strict cycle counting
+        always_ff @(posedge clk) begin
+            if (counter == 99 && !active_request) begin
+                refresh <= 1;
+                counter <= 0;
+            end
+        end
+        
+        // Version Y: Overlapping refresh windows
+        always_ff @(posedge clk) begin
+            if (counter >= 100 && !active_request) begin
+                refresh <= 1;
+                counter <= 0;
+            end
+        end
+
+    Waveform Impact:
+        Version X: Exact 100-cycle intervals
+        Version Y: Allows refresh at cycle 100, 101, etc.
+        
+    Clarification: "Refresh must occur precisely every 100 cycles, resetting counter after refresh start"
+    
+    SVA Assertion:
+        assert property (@(posedge clk) 
+            $rose(refresh) |-> $past(counter,1) == 99);
+",
+    "classification": "ambiguous"
 </example>
 """
 
@@ -274,41 +345,32 @@ class ambiguous_classifier:
         # self.llm =OpenAI(model=args.model, api_key=api_key, api_base="https://api.bianxie.ai/v1")
         #self.llm = Anthropic(model=args.model, api_key=api_key, base_url="https://api.bianxie.ai/v1")
         #self.llm = OpenAI(api_key=api_key, base_url=base_url)
-        self.llm = Anthropic(model=model,api_key=api_key, max_tokens=max_tokens)
+        # self.llm = Anthropic(model=model,api_key=api_key, max_tokens=max_tokens)
+        # self.llm = get_llm(model=model, api_key=api_key)
+        # self.llm = Anthropic(model=model, api_key=api_key, max_tokens=max_tokens)
+        self.llm = get_llm(model=model, api_key=api_key, max_tokens=max_tokens)
 
     def run(self, input_spec: str) -> Dict:
-        # msg = [
-        #     ChatMessage(content=SYSTEM_PROMPT, role=MessageRole.SYSTEM),
-        #     ChatMessage(content=GENERATION_PROMPT.format(input_spec=content, example_prompt = CLASSIFICATION_4_SHOT_EXAMPLES), role=MessageRole.USER),
-        #     ChatMessage(
-        #         content=ORDER_PROMPT.format(
-        #             output_format="".join(json.dumps(EXAMPLE_OUTPUT_FORMAT, indent=4))
-        #         ),
-        #         role=MessageRole.USER,
-        #     ),
-        # ]
-        # response = self.llm.chat(msg)
 
-        # use this for Deepseek r1 and claude-3-5-sonnet
         msg = [
-        ChatMessage(
-            content=SYSTEM_PROMPT, 
-            role=MessageRole.SYSTEM
-        ),
-        ChatMessage(
-            content=GENERATION_PROMPT.format(
-                input_spec=input_spec, 
-                example_prompt=CLASSIFICATION_4_SHOT_EXAMPLES
-            ), 
-            role=MessageRole.USER
-        ),
-        ChatMessage(
-            content=ORDER_PROMPT.format(
-                output_format="".join(json.dumps(EXAMPLE_OUTPUT_FORMAT, indent=4))
-            ), 
-            role=MessageRole.USER
-        ),
-    ]
+            ChatMessage(
+                content=SYSTEM_PROMPT, 
+                role=MessageRole.SYSTEM
+            ),
+            ChatMessage(
+                content=GENERATION_PROMPT.format(
+                    input_spec=input_spec, 
+                    example_prompt=CLASSIFICATION_5_SHOT_EXAMPLES
+                ), 
+                role=MessageRole.USER
+            ),
+            ChatMessage(
+                content=ORDER_PROMPT.format(
+                    output_format="".join(json.dumps(EXAMPLE_OUTPUT_FORMAT, indent=4))
+                ), 
+                role=MessageRole.USER
+            ),
+        ]
 
         response = self.llm.chat(
         messages=msg
@@ -318,16 +380,17 @@ class ambiguous_classifier:
             # output_json_obj: Dict = json.loads(response.message.content, strict=False)
 
             # use this for Deepseek r1 and claude-3-5-sonnet
-            if self.model == "claude-3-5-sonnet-20241022":
-                output_json_obj: Dict = json.loads("".join(response.choices[0].message.content.split("\n")[1:]), strict=False)
-            else:
-                output_json_obj: Dict = json.loads(response.choices[0].message.content, strict=False)
+            # if self.model == "claude-3-5-sonnet-20241022":
+            #     output_json_obj: Dict = json.loads("".join(response.choices[0].message.content.split("\n")[1:]), strict=False)
+            # else:
+            #     output_json_obj: Dict = json.loads(response.choices[0].message.content, strict=False)
+            output_json_obj: Dict = json.loads(response.message.content, strict=False)
 
             classification = output_json_obj["classification"]
             logger.info(f"Succeed to parse response, Classification: {classification}")
         except json.decoder.JSONDecodeError as e:
-            print(f"Error: {e}")
-            logger.info(f"Error: {e}")
+            print(f"Json parse error: {e}")
+            logger.info(f"Json parse error: {e}")
             print(response)
             return None
         

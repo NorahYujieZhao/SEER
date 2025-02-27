@@ -4,24 +4,26 @@ from typing import Dict
 from llama_index.core.llms import LLM
 
 from llama_index.llms.anthropic import Anthropic
-# from llama_index.llms.openai import OpenAI
+from llama_index.llms.openai import OpenAI
 from llama_index.llms.gemini import Gemini
 from llama_index.llms.deepseek import DeepSeek
-from llama_index.llms.openai import OpenAI
 
 from llama_index.core.base.llms.types import ChatMessage, MessageRole
 
 from mage_rtl.log_utils import get_logger, set_log_dir, switch_log_to_file, switch_log_to_stdout
+from mage_rtl.gen_config import get_llm
 
 logger = get_logger(__name__)
 
 SYSTEM_PROMPT = r"""
 You are an expert in RTL design. You can always write SystemVerilog code with no syntax errors and always reach correct functionality.
+You can always provide a precise and unambiguous RTL design specification.
 """
 
 GENERATION_PROMPT = r"""
 Analyze the provided SystemVerilog specification which is ambiguous. 
 Based on the reasons for these ambiguities provided below, modify the specification to eliminate any unclear aspects. 
+Ensure that all the ambiguities are resolved.
 Ensure that the revised specification is precise and unambiguous.
 <input_spec>
 {input_spec}
@@ -42,7 +44,10 @@ class ambiguous_fixer:
         self.model = model
         # self.llm =OpenAI(model=args.model, api_key=api_key, api_base="https://api.bianxie.ai/v1")
         # self.llm = Anthropic(model=args.model, api_key=api_key, base_url="https://api.bianxie.ai/v1")
-        self.llm = OpenAI(model=model, api_key=api_key)
+        # self.llm = OpenAI(model=model, api_key=api_key)
+        # self.llm = get_llm(model=model, api_key=api_key)
+        # self.llm = Gemini(model=model, api_key=api_key)
+        self.llm = get_llm(model=model, api_key=api_key, max_tokens=max_tokens)
     
     def run(self, input_spec: str, reasons: str) -> str:
         msg = [
