@@ -6,12 +6,11 @@ from llama_index.core.llms import LLM
 from llama_index.llms.anthropic import Anthropic
 from llama_index.llms.openai import OpenAI
 from llama_index.llms.gemini import Gemini
-from llama_index.llms.deepseek import DeepSeek
 
 from llama_index.core.base.llms.types import ChatMessage, MessageRole
 
-from mage_rtl.log_utils import get_logger, set_log_dir, switch_log_to_file, switch_log_to_stdout
-from mage_rtl.gen_config import get_llm
+from mage.log_utils import get_logger, set_log_dir, switch_log_to_file, switch_log_to_stdout
+from mage.gen_config import get_llm
 
 logger = get_logger(__name__)
 
@@ -22,7 +21,9 @@ You can always provide a precise and unambiguous RTL design specification.
 
 GENERATION_PROMPT = r"""
 Analyze the provided SystemVerilog specification which is ambiguous. 
-Based on the reasons for these ambiguities provided below, modify the specification to eliminate any unclear aspects. 
+Based on the reasons for these ambiguities and candidates for eliminating the ambiguities provided below, modify the specification to eliminate any unclear aspects. 
+FOR EACH AMBIGUITY, CHOSE ONE OF THE CANDIDATES AND MODIFY THE SPECIFICATION ACCORDINGLY.
+YOU ARE NOT ALLOWED TO CHANGE THE MEANING OF THE SPECIFICATION.
 Ensure that all the ambiguities are resolved.
 Ensure that the revised specification is precise and unambiguous.
 <input_spec>
@@ -34,22 +35,22 @@ Reasons for ambiguity:
 {reasons}
 </reasons>
 
+Candidates for eliminating the ambiguities:
+<candidates>
+{candidates}
+</candidates>
+
 Your response will be processed by a program, not human.
 So, please provide the modified specification only.
 DO NOT include any other information in your response, like 'json', 'reasoning' or '<output_format>'.
 """
 
 class ambiguous_fixer:
-    def __init__(self, model: str, api_key: str, max_tokens: int):
+    def __init__(self, model: str, max_token: int, provider: str, cfg_path: str):
         self.model = model
-        # self.llm =OpenAI(model=args.model, api_key=api_key, api_base="https://api.bianxie.ai/v1")
-        # self.llm = Anthropic(model=args.model, api_key=api_key, base_url="https://api.bianxie.ai/v1")
-        # self.llm = OpenAI(model=model, api_key=api_key)
-        # self.llm = get_llm(model=model, api_key=api_key)
-        # self.llm = Gemini(model=model, api_key=api_key)
-        self.llm = get_llm(model=model, api_key=api_key, max_tokens=max_tokens)
+        self.llm = get_llm(model=model, max_token=max_token, provider=provider, cfg_path=cfg_path)
     
-    def run(self, input_spec: str, reasons: str) -> str:
+    def run(self, input_spec: str, reasons: str, candidates: str) -> str:
         msg = [
             ChatMessage(
                 content=SYSTEM_PROMPT,
@@ -58,7 +59,8 @@ class ambiguous_fixer:
             ChatMessage(
                 content=GENERATION_PROMPT.format(
                     input_spec=input_spec,
-                    reasons=reasons
+                    reasons=reasons,
+                    candidates=candidates
                 ),
                 role=MessageRole.USER
             )

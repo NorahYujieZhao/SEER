@@ -6,16 +6,15 @@ from llama_index.core.llms import LLM
 from llama_index.llms.anthropic import Anthropic
 from llama_index.llms.openai import OpenAI
 from llama_index.llms.gemini import Gemini
-from llama_index.llms.deepseek import DeepSeek
 
 # use this for Deepseek r1 and claude-3-5-sonnet
 # from openai import OpenAI
 
 from llama_index.core.base.llms.types import ChatMessage, MessageRole
-from mage_rtl.gen_config import get_llm
+from mage.gen_config import get_llm
 
-from mage_rtl.log_utils import get_logger, set_log_dir, switch_log_to_file, switch_log_to_stdout
-from mage_rtl.prompts import ORDER_PROMPT
+from mage.log_utils import get_logger, set_log_dir, switch_log_to_file, switch_log_to_stdout
+from mage.prompts import ORDER_PROMPT
 
 logger = get_logger(__name__)
 
@@ -47,40 +46,22 @@ Execute the following steps strictly:
 3. Resolution Proposal
    Suggest SPEC modification using IEEE SystemVerilog standard terminology.  
    Provide assertion examples (SVA) to enforce intended behavior.
+   Generate multiple candidate modifications (at least 2 distinct approaches) to eliminate each ambiguity.
 
 {example_prompt}
 <input_spec>
 {input_spec}
 </input_spec>
 """
-# EXAMPLE_OUTPUT_FORMAT = {
-#     "reasoning": r"""
-# [Ambiguity 1]  
-#     Source Clause: "The module shall assert 'valid' when data is ready."  
-#     Type: Timing Unspecified  
-#     Conflict Implementations:  
-#         // Version A: Combinational valid (no latency)
-#             assign valid = (data_ready);
-  
-#         // Version B: Pipelined valid (1-cycle latency)
-#             always_ff @(posedge clk) 
-#             valid <= data_ready;
-
-#     Waveform Impact:
-#         Version A: valid follows data_ready immediately
-#         Version B: valid lags data_ready by 1 cycle
-
-# Clarification: "valid must be asserted combinatorially when data_ready is high."
-
-# SVA Assertion:
-#     assert property (@(data_ready) data_ready |-> \#\#0 valid);
-# """,
-#     "classification": "ambiguous or unambiguous (do not use any other words)",
-# }
 
 EXAMPLE_OUTPUT_FORMAT = {
     "reasoning": "All reasoning steps and advices to avoid ambiguous",
     "classification": "ambiguous or unambiguous (do not use any other words)",
+    "candidates": """
+        Candidate modification 1: ...,
+        Candidate modification 2: ...,
+        Candidate modification 3: ...,
+    """,
 }
 
 CLASSIFICATION_5_SHOT_EXAMPLES=r"""
@@ -135,7 +116,19 @@ Example 1:
             (enable && data_in[31:30]!=2'b11 && data_in[31:30]!=2'b01) |-> \#\#1 data_valid);
     
 ",
-    "classification": "ambiguous"
+    "classification": "ambiguous",
+    "candidates": "
+        1. "Processing latency shall be determined by bits[31:30] as:
+           2'b11:3 cycles, 2'b01:2 cycles, others:1 cycle"
+        2. "Implement adaptive latency controller with max 3 cycles:
+           - Add latency_config register (2 bits)
+           - Introduce latency_override signal
+           - Define priority between data value and override signal"
+        3. "Specify exact conditions for variable latency:
+           - If data_in > 0xFFFF: 3 cycles
+           - If data_in[15:0] == 0: 2 cycles
+           - Else: 1 cycle"
+    "
 </example>
 
 Example 2:
@@ -179,7 +172,18 @@ Example 2:
         assert property (@(posedge clk) 
             $changed(grant) |-> !$isunknown(clk));
 ",
-    "classification": "ambiguous"
+    "classification": "ambiguous",
+    "candidates": "
+        1. "Preemption shall only occur at clock boundaries"
+        2. "Define preemption window:
+           - Preemption allowed only during first half cycle
+           - Use clock divider for preemption timing control"
+        3. "Add preemption policy register (preempt_policy[1:0]):
+           00: No preemption
+           01: Cycle-boundary preemption
+           10: Immediate preemption
+           11: Delayed preemption (1 cycle latency)"
+    "
 </example>
 
 Example 3:
@@ -217,7 +221,17 @@ Example 3:
         assert property (@(posedge clk) 
             start_pulse |-> \#\#0 data_stream[15:0]==16'hA5);
 ",
-    "classification": "ambiguous"
+    "classification": "ambiguous",
+    "candidates": "
+        1. "Sync pattern must match the first two bytes exactly (bits[15:0])"
+        2. "Define sliding window detection with configurable offset:
+           - sync_offset register sets starting bit position
+           - Default offset=0"
+        3. "Implement multi-mode sync detection:
+           - Mode 0: Fixed position (bits[15:0])
+           - Mode 1: Any 8-bit aligned window
+           - Mode 2: Fully sliding window"
+    "
 </example>
 
 Example 4:
@@ -258,7 +272,10 @@ Example 4:
         - Identical polynomial processing
         - Synchronous output registration
 ",
-    "classification": "unambiguous"
+    "classification": "unambiguous",
+    "candidates": "
+        1. "No ambiguity detected - specification is complete"
+    "
 
 Example 5:
 <example>
@@ -328,27 +345,43 @@ Example 5:
         assert property (@(posedge clk) 
             $rose(refresh) |-> $past(counter,1) == 99);
 ",
-    "classification": "ambiguous"
+    "classification": "ambiguous",
+    "candidates": "
+        For Ambiguity 1:
+        1. "addr_offset represents 4-byte words: phys_addr = base_addr + (offset << 2)"
+        2. "Define address scaling factor via parameter:
+           parameter ADDR_SCALE = 1;
+           phys_addr = base_addr + (offset * ADDR_SCALE)"
+        3. "Add address mode register (addr_mode[1:0]):
+           00: Byte addressing
+           01: 32-bit word addressing
+           10: 64-bit double-word addressing"
+        
+        For Ambiguity 2:
+        1. "Refresh must occur precisely every 100 cycles (counter == 99)"
+        2. "Define refresh window tolerance:
+           parameter REFRESH_TOLERANCE = 2;
+           refresh when (counter >= 100 - REFRESH_TOLERANCE)"
+        3. "Implement refresh priority policy:
+           - High priority: active_request
+           - Medium priority: refresh counter
+           - Low priority: background tasks"
+    "
+
 </example>
 """
 
 EXTRA_ORDER_PROMPT = r"""
-VERY IMPORTANT: Please only include "reasoning" and "classification" in your response.
+VERY IMPORTANT: Please only include "reasoning", "classification" and "candidates" in your response.
 Do not include any other information in your response, like 'json', 'example', 'Let me analyze','input_spec' or '<output_format>'.
 Key instruction: Direct output, no extra comments.
 As a reminder, please directly provide the content without adding any extra comments or explanations.
 """
 
 class ambiguous_classifier:
-    def __init__(self, model: str, api_key: str, max_tokens: int):
+    def __init__(self, model: str, max_token: int, provider: str, cfg_path: str):
         self.model = model
-        # self.llm =OpenAI(model=args.model, api_key=api_key, api_base="https://api.bianxie.ai/v1")
-        #self.llm = Anthropic(model=args.model, api_key=api_key, base_url="https://api.bianxie.ai/v1")
-        #self.llm = OpenAI(api_key=api_key, base_url=base_url)
-        # self.llm = Anthropic(model=model,api_key=api_key, max_tokens=max_tokens)
-        # self.llm = get_llm(model=model, api_key=api_key)
-        # self.llm = Anthropic(model=model, api_key=api_key, max_tokens=max_tokens)
-        self.llm = get_llm(model=model, api_key=api_key, max_tokens=max_tokens)
+        self.llm = get_llm(model=model, max_token=max_token, provider=provider, cfg_path=cfg_path)
 
     def run(self, input_spec: str) -> Dict:
 

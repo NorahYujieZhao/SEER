@@ -5,39 +5,38 @@ from datetime import timedelta
 from typing import Any, Dict
 
 from llama_index.core.llms import LLM
-
-from mage_rtl.agent import TopAgent
-from mage_rtl.benchmark_read_helper import (
+from mage.agent import TopAgent
+from mage.benchmark_read_helper import (
     TypeBenchmark,
     TypeBenchmarkFile,
     get_benchmark_contents,
 )
-from mage_rtl.gen_config import Config, get_llm, set_exp_setting
-from mage_rtl.log_utils import get_logger
-from mage_rtl.sim_reviewer import sim_review_golden_benchmark
-from mage_rtl.token_counter import TokenCount
+from mage.gen_config import get_llm, set_exp_setting
+from mage.log_utils import get_logger
+from mage.sim_reviewer import sim_review_golden_benchmark
+from mage.token_counter import TokenCount
 
 logger = get_logger(__name__)
 
 
 args_dict = {
-    # "model": "claude-3-5-sonnet-20241022",
+    "provider": "vertexanthropic",
+    "model": "claude-3-7-sonnet@20250219",
+    # "model": "gemini-2.0-flash-001",
+    # "model": "claude-3-7-sonnet-20250219",
     # "model": "gpt-4o-2024-08-06",
-    # "model": "gemini-2.0-flash",
-    "model":"deepseek-reasoner",
     # "filter_instance": "^(Prob070_ece241_2013_q2|Prob151_review2015_fsm)$",
     "filter_instance": "^(Prob011_norgate)$",
     # "filter_instance": "^(.*)$",
     "type_benchmark": "verilog_eval_v2",
-    "path_benchmark": "../verilog-eval",
-    # "run_identifier": "run_test_openai",
-    # "run_identifier": "run_test_anthropic",
-    # "run_identifier": "run_test_gimini",
-    "run_identifier": "run_test_deepseek",
+    "path_benchmark": "./verilog-eval",
+    "run_identifier": "your_run_identifier",
     "n": 1,
     "temperature": 0.85,
     "top_p": 0.95,
+    "max_token": 8192,
     "use_golden_tb_in_mage": True,
+    "key_cfg_path": "./key.cfg",
 }
 
 
@@ -110,8 +109,6 @@ def run_round(args: argparse.Namespace, llm: LLM):
                 + run_token_cnt.out_token_cnt
                 * agent.token_counter.token_cost.out_token_cost_per_token
             )
-        else:
-            run_cost = 0
         run_token_limit_cnt = agent.token_counter.get_total_token()
         print(f"Current problem token limit consumption: {run_token_limit_cnt}")
         token_limit_cnt += run_token_limit_cnt
@@ -139,8 +136,7 @@ def run_round(args: argparse.Namespace, llm: LLM):
         )
         print(f"{'Total cost':<25}: ${total_cost:.2f} USD")
         print(f"{'Avg cost':<25}: ${total_cost / len(spec_dict):.2f} USD")
-    else:
-        total_cost = 0
+
     total_run_time = timedelta(seconds=time.monotonic() - total_start_time)
     print(f"Totally took {total_run_time} to execute")
     record_json["total_record"] = {
@@ -156,8 +152,13 @@ def run_round(args: argparse.Namespace, llm: LLM):
 
 def main():
     args = argparse.Namespace(**args_dict)
-    cfg = Config("./key.cfg")
-    llm = get_llm(model=args.model, api_key=cfg["BIANXIE_API_KEY"], max_tokens=8192)
+
+    llm = get_llm(
+        model=args.model,
+        cfg_path=args.key_cfg_path,
+        max_token=args.max_token,
+        provider=args.provider,
+    )
     identifier_head = args.run_identifier
     n = args.n
     set_exp_setting(temperature=args.temperature, top_p=args.top_p)

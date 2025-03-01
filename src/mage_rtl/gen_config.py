@@ -1,14 +1,15 @@
 import os
 
 import config
+from google.oauth2 import service_account
 from llama_index.core.llms.llm import LLM
 from llama_index.llms.anthropic import Anthropic
 from llama_index.llms.openai import OpenAI
-from llama_index.llms.gemini import Gemini
-from llama_index.llms.deepseek import DeepSeek
+from llama_index.llms.vertex import Vertex
 from pydantic import BaseModel
 
 from .log_utils import get_logger
+from .utils import VertexAnthropicWithCredentials
 
 logger = get_logger(__name__)
 
@@ -36,24 +37,82 @@ class Config:
 
 
 def get_llm(**kwargs) -> LLM:
-    model = kwargs['model']
-    if model.startswith("gpt"):
-        LLM_func = OpenAI
-    elif model.startswith("claude"):
-        LLM_func = Anthropic
-    elif model.startswith("models/gemini") or model.startswith("gemini"):
-        LLM_func = Gemini
+    cfg = Config(kwargs["cfg_path"])
+    provider: str = kwargs["provider"]
+    provider = provider.lower()
+    if provider == "anthropic":
+        try:
+            llm: LLM = Anthropic(
+                model=kwargs["model"],
+                api_key=cfg["ANTHROPIC_API_KEY"],
+                max_tokens=kwargs["max_token"],
+            )
+
+        except Exception as e:
+            raise Exception(f"gen_config: Failed to get {provider} LLM") from e
+    elif kwargs["provider"] == "openai":
+        try:
+            llm: LLM = OpenAI(
+                model=kwargs["model"],
+                api_key=cfg["OPENAI_API_KEY"],
+                max_tokens=kwargs["max_token"],
+            )
+
+        except Exception as e:
+            raise Exception(f"gen_config: Failed to get {provider} LLM") from e
+    elif kwargs["provider"] == "vertex":
+        logger.warning(
+            "Support of Vertex Gemini LLMs is still in experimental stage, use with caution"
+        )
+        service_account_path = os.path.expanduser(cfg["VERTEX_SERVICE_ACCOUNT_PATH"])
+        if not os.path.exists(service_account_path):
+            raise FileNotFoundError(
+                f"Google Cloud Service Account file not found: {service_account_path}"
+            )
+        try:
+            credentials = service_account.Credentials.from_service_account_file(
+                service_account_path
+            )
+            llm: LLM = Vertex(
+                model=kwargs["model"],
+                project=credentials.project_id,
+                credentials=credentials,
+                max_tokens=kwargs["max_token"],
+            )
+
+        except Exception as e:
+            raise Exception(f"gen_config: Failed to get {provider} LLM") from e
+    elif kwargs["provider"] == "vertexanthropic":
+        service_account_path = os.path.expanduser(cfg["VERTEX_SERVICE_ACCOUNT_PATH"])
+        if not os.path.exists(service_account_path):
+            raise FileNotFoundError(
+                f"Google Cloud Service Account file not found: {service_account_path}"
+            )
+        try:
+            credentials = service_account.Credentials.from_service_account_file(
+                service_account_path,
+                scopes=["https://www.googleapis.com/auth/cloud-platform"],
+            )
+            llm: LLM = VertexAnthropicWithCredentials(
+                model=kwargs["model"],
+                project_id=credentials.project_id,
+                credentials=credentials,
+                region=cfg["VERTEX_REGION"],
+                max_tokens=kwargs["max_token"],
+            )
+
+        except Exception as e:
+            raise Exception(f"gen_config: Failed to get {provider} LLM") from e
     else:
-        LLM_func = DeepSeek
+        raise ValueError(f"gen_config: Invalid provider: {provider}")
 
     try:
-        llm: LLM = LLM_func(**kwargs)
         _ = llm.complete("Say 'Hi'")
     except Exception as e:
         raise Exception(
-            f"gen_config: Failed to get LLM. Error msgs include:\n"
-            + str(e)
-        )
+            f"gen_config: Failed to complete LLM chat for {provider}"
+        ) from e
+
     return llm
 
 
