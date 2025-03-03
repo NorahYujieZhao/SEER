@@ -46,7 +46,6 @@ Execute the following steps strictly:
 3. Resolution Proposal
    Suggest SPEC modification using IEEE SystemVerilog standard terminology.  
    Provide assertion examples (SVA) to enforce intended behavior.
-   Generate multiple candidate modifications (at least 2 distinct approaches) to eliminate each ambiguity.
 
 {example_prompt}
 <input_spec>
@@ -57,11 +56,6 @@ Execute the following steps strictly:
 EXAMPLE_OUTPUT_FORMAT = {
     "reasoning": "All reasoning steps and advices to avoid ambiguous",
     "classification": "ambiguous or unambiguous (do not use any other words)",
-    "candidates": """
-        Candidate modification 1: ...,
-        Candidate modification 2: ...,
-        Candidate modification 3: ...,
-    """,
 }
 
 CLASSIFICATION_5_SHOT_EXAMPLES=r"""
@@ -116,19 +110,7 @@ Example 1:
             (enable && data_in[31:30]!=2'b11 && data_in[31:30]!=2'b01) |-> \#\#1 data_valid);
     
 ",
-    "classification": "ambiguous",
-    "candidates": "
-        1. "Processing latency shall be determined by bits[31:30] as:
-           2'b11:3 cycles, 2'b01:2 cycles, others:1 cycle"
-        2. "Implement adaptive latency controller with max 3 cycles:
-           - Add latency_config register (2 bits)
-           - Introduce latency_override signal
-           - Define priority between data value and override signal"
-        3. "Specify exact conditions for variable latency:
-           - If data_in > 0xFFFF: 3 cycles
-           - If data_in[15:0] == 0: 2 cycles
-           - Else: 1 cycle"
-    "
+    "classification": "ambiguous"
 </example>
 
 Example 2:
@@ -172,18 +154,7 @@ Example 2:
         assert property (@(posedge clk) 
             $changed(grant) |-> !$isunknown(clk));
 ",
-    "classification": "ambiguous",
-    "candidates": "
-        1. "Preemption shall only occur at clock boundaries"
-        2. "Define preemption window:
-           - Preemption allowed only during first half cycle
-           - Use clock divider for preemption timing control"
-        3. "Add preemption policy register (preempt_policy[1:0]):
-           00: No preemption
-           01: Cycle-boundary preemption
-           10: Immediate preemption
-           11: Delayed preemption (1 cycle latency)"
-    "
+    "classification": "ambiguous"
 </example>
 
 Example 3:
@@ -221,17 +192,7 @@ Example 3:
         assert property (@(posedge clk) 
             start_pulse |-> \#\#0 data_stream[15:0]==16'hA5);
 ",
-    "classification": "ambiguous",
-    "candidates": "
-        1. "Sync pattern must match the first two bytes exactly (bits[15:0])"
-        2. "Define sliding window detection with configurable offset:
-           - sync_offset register sets starting bit position
-           - Default offset=0"
-        3. "Implement multi-mode sync detection:
-           - Mode 0: Fixed position (bits[15:0])
-           - Mode 1: Any 8-bit aligned window
-           - Mode 2: Fully sliding window"
-    "
+    "classification": "ambiguous"
 </example>
 
 Example 4:
@@ -272,10 +233,7 @@ Example 4:
         - Identical polynomial processing
         - Synchronous output registration
 ",
-    "classification": "unambiguous",
-    "candidates": "
-        1. "No ambiguity detected - specification is complete"
-    "
+    "classification": "unambiguous"
 
 Example 5:
 <example>
@@ -345,34 +303,12 @@ Example 5:
         assert property (@(posedge clk) 
             $rose(refresh) |-> $past(counter,1) == 99);
 ",
-    "classification": "ambiguous",
-    "candidates": "
-        For Ambiguity 1:
-        1. "addr_offset represents 4-byte words: phys_addr = base_addr + (offset << 2)"
-        2. "Define address scaling factor via parameter:
-           parameter ADDR_SCALE = 1;
-           phys_addr = base_addr + (offset * ADDR_SCALE)"
-        3. "Add address mode register (addr_mode[1:0]):
-           00: Byte addressing
-           01: 32-bit word addressing
-           10: 64-bit double-word addressing"
-        
-        For Ambiguity 2:
-        1. "Refresh must occur precisely every 100 cycles (counter == 99)"
-        2. "Define refresh window tolerance:
-           parameter REFRESH_TOLERANCE = 2;
-           refresh when (counter >= 100 - REFRESH_TOLERANCE)"
-        3. "Implement refresh priority policy:
-           - High priority: active_request
-           - Medium priority: refresh counter
-           - Low priority: background tasks"
-    "
-
+    "classification": "ambiguous"
 </example>
 """
 
 EXTRA_ORDER_PROMPT = r"""
-VERY IMPORTANT: Please only include "reasoning", "classification" and "candidates" in your response.
+VERY IMPORTANT: Please only include "reasoning" and "classification" in your response.
 Do not include any other information in your response, like 'json', 'example', 'Let me analyze','input_spec' or '<output_format>'.
 Key instruction: Direct output, no extra comments.
 As a reminder, please directly provide the content without adding any extra comments or explanations.

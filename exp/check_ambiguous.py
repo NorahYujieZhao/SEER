@@ -17,21 +17,23 @@ logger = get_logger(__name__)
 
 args_dict = {
     # "model": "deepseek-reasoner",
-    # "model": "gpt-4o-2024-08-06",
+    "model": "gpt-4o-2024-08-06",
     # "model": "gpt-4o-mini-2024-07-18",
     # "model": "gemini-2.0-flash",
     # "model": "claude-3-5-sonnet-20241022",
     # "model_fixer": "models/gemini-2.0-flash",
     # "model_fixer": "claude-3-5-sonnet-20241022",
-    # "model_fixer": "gpt-4o-2024-08-06",
+    "model_fixer": "gpt-4o-2024-08-06",
     # "provider": "anthropic",
-    # "provider": "openai",
+    "provider": "openai",
     # "provider_fixer": "anthropic",
-    # "provider_fixer": "openai",
-    "provider": "vertexanthropic",
-    "model": "claude-3-7-sonnet@20250219",
-    "model_fixer": "claude-3-7-sonnet@20250219",
-    "provider_fixer": "vertexanthropic",
+    "provider_fixer": "openai",
+
+    
+    # "model": "claude-3-7-sonnet@20250219",
+    # "model_fixer": "claude-3-7-sonnet@20250219",
+    # "provider": "vertexanthropic",
+    # "provider_fixer": "vertexanthropic",
 
     # "filter_instance": "Prob011|Prob012|Prob013|Prob014|Prob015|Prob152|Prob153|Prob154|Prob155|Prob156",
     # "filter_instance": "Prob051|Prob052|Prob053|Prob054|Prob055|Prob101|Prob102|Prob103|Prob104|Prob105",
@@ -48,6 +50,7 @@ args_dict = {
     "run_identifier":"run_test",
     # "base_url": "https://api.bianxie.ai/v1",
     "key_cfg_path": "./key.cfg",
+    "use_golden_ref": True,
 }
 
 def main():
@@ -77,7 +80,7 @@ def main():
         # api_key_fixer = cfg["BIANXIE_API_KEY"]
     
     classifier = ambiguous_classifier(model=args.model, max_token=8192, provider=args.provider, cfg_path=args.key_cfg_path)
-    fixer = ambiguous_fixer(model=args.model_fixer, max_token=8192, provider=args.provider_fixer, cfg_path=args.key_cfg_path)
+    fixer = ambiguous_fixer(model=args.model_fixer, max_token=8192, provider=args.provider_fixer, cfg_path=args.key_cfg_path, use_golden_ref=args.use_golden_ref)
 
     timestamp = datetime.now().strftime("%Y%m%d")
     output_dir = f"output_{args.run_identifier}_{timestamp}"
@@ -89,6 +92,7 @@ def main():
     fixed_spec = 0
     summary_file_path = os.path.join(output_dir, "summary.txt")
     summary = []
+    golden_ref = None
 
     for root, dirs, files in os.walk(args.folder_path):
         for file in files:
@@ -103,6 +107,11 @@ def main():
                 file_path = os.path.join(root, file)
                 with open(file_path, 'r') as f:
                     input_spec = f.read()
+                
+                if args.use_golden_ref:
+                    golden_ref_file_path = os.path.join(root, f"{task_id}_ref.sv")
+                    with open(golden_ref_file_path, 'r') as f:
+                        golden_ref = f.read()
 
                 output_json_obj = classifier.run(input_spec)
                 classification = output_json_obj["classification"]
@@ -120,7 +129,7 @@ def main():
                 fix_iter = 0
                 while classification == "ambiguous" and fix_iter < 5:
                     fix_iter += 1
-                    input_spec = fixer.run(input_spec, output_json_obj["reasoning"], output_json_obj["candidates"])
+                    input_spec = fixer.run(input_spec, output_json_obj["reasoning"], golden_ref)
                     logger.info(f"Fixed spec, try to classify again -- trial {fix_iter}")
                     output_json_obj_fixed = classifier.run(input_spec)
 
