@@ -1,5 +1,5 @@
 import json
-from typing import Dict
+from typing import Dict, List
 
 from llama_index.core.llms import LLM
 
@@ -15,6 +15,8 @@ from mage.gen_config import get_llm
 
 from mage.log_utils import get_logger, set_log_dir, switch_log_to_file, switch_log_to_stdout
 from mage.prompts import ORDER_PROMPT
+
+from mage.token_counter import TokenCounter, TokenCounterCached
 
 logger = get_logger(__name__)
 
@@ -321,33 +323,37 @@ class ambiguous_classifier:
     def __init__(self, model: str, max_token: int, provider: str, cfg_path: str):
         self.model = model
         self.llm = get_llm(model=model, max_token=max_token, provider=provider, cfg_path=cfg_path)
-
+        self.token_counter = (
+            TokenCounterCached(self.llm)
+            if TokenCounterCached.is_cache_enabled(self.llm)
+            else TokenCounter(self.llm)
+        )
     def run(self, input_spec: str) -> Dict:
 
         msg = [
-            ChatMessage(
-                content=SYSTEM_PROMPT, 
-                role=MessageRole.SYSTEM
-            ),
+            ChatMessage(content=SYSTEM_PROMPT, role=MessageRole.SYSTEM),
             ChatMessage(
                 content=GENERATION_PROMPT.format(
-                    input_spec=input_spec, 
+                    input_spec=input_spec,
                     example_prompt=CLASSIFICATION_5_SHOT_EXAMPLES
-                ), 
+                ),
                 role=MessageRole.USER
             ),
             ChatMessage(
                 content=ORDER_PROMPT.format(
                     output_format="".join(json.dumps(EXAMPLE_OUTPUT_FORMAT, indent=4))
-                ), 
+                ),
                 role=MessageRole.USER
             ),
         ]
+        response, token_cnt = self.token_counter.count_chat(msg)
+        
+        logger.info(f"Token count: {token_cnt}")
+        logger.info(f"{response.message.content}")
+        self.token_counter.log_token_stats()
 
-        response = self.llm.chat(
-        messages=msg
-        )
-        logger.info(f"Get response from {self.model}: {response}")
+        #response = self.generate(msg)
+        logger.info(f"Get response from {self.model}: {response.message.content}")
         try:
             # output_json_obj: Dict = json.loads(response.message.content, strict=False)
 

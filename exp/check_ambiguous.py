@@ -17,23 +17,24 @@ logger = get_logger(__name__)
 
 args_dict = {
     # "model": "deepseek-reasoner",
-    # "model": "gpt-4o-2024-08-06",
+    #"model": "gpt-4o-2024-08-06",
     # "model": "gpt-4o-mini-2024-07-18",
     # "model": "gemini-2.0-flash",
-    "model": "claude-3-5-sonnet-20241022",
+     #"model": "claude-3-5-sonnet-20241022",
     # "model_fixer": "models/gemini-2.0-flash",
-    "model_fixer": "claude-3-5-sonnet-20241022",
-    # "model_fixer": "gpt-4o-2024-08-06",
-    # "provider": "anthropic",
-    # "provider": "openai",
-    # "provider_fixer": "anthropic",
-    # "provider_fixer": "openai",
-
+    #"model_fixer": "claude-3-5-sonnet-20241022",
+    #"model_fixer": "gpt-4o-2024-08-06",
+     #"provider": "anthropic",
+    #"provider": "openai",
+    #"provider_fixer": "anthropic",
+    #"provider_fixer": "openai",
+    'temperature': 0,
+    'top_p': 1,
     
-    # "model": "claude-3-7-sonnet@20250219",
-    # "model_fixer": "claude-3-7-sonnet@20250219",
-    "provider": "vertexanthropic",
-    "provider_fixer": "vertexanthropic",
+     "model": "claude-3-7-sonnet@20250219",
+     "model_fixer": "claude-3-7-sonnet@20250219",
+     "provider": "vertexanthropic",
+     "provider_fixer": "vertexanthropic",
 
     # "filter_instance": "Prob011|Prob012|Prob013|Prob014|Prob015|Prob152|Prob153|Prob154|Prob155|Prob156",
     # "filter_instance": "Prob051|Prob052|Prob053|Prob054|Prob055|Prob101|Prob102|Prob103|Prob104|Prob105",
@@ -49,7 +50,7 @@ args_dict = {
     # "run_identifier": "fix_claude3-5",
     "run_identifier":"run_test",
     # "base_url": "https://api.bianxie.ai/v1",
-    "key_cfg_path": "./key.cfg",
+    "key_cfg_path": "../key.cfg",
     "use_golden_ref": True,
 }
 
@@ -97,6 +98,7 @@ def main():
     for root, dirs, files in os.walk(args.folder_path):
         for file in files:
             if re.match(f"({args.filter_instance}).*_prompt\\.txt$", file):
+            #if re.match(f".*_prompt\\.txt$", file):
                 task_id = file.replace("_prompt.txt", "")
                 output_dir_per_task = f"{output_dir}/{task_id}"
                 log_dir_per_task = f"{log_dir}/{task_id}"

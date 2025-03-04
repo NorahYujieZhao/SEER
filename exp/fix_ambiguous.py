@@ -1,8 +1,8 @@
 import json
-from typing import Dict
+from typing import Dict, List
 
 from llama_index.core.llms import LLM
-
+from llama_index.core.base.llms.types import ChatMessage, ChatResponse, MessageRole
 from llama_index.llms.anthropic import Anthropic
 from llama_index.llms.openai import OpenAI
 from llama_index.llms.gemini import Gemini
@@ -11,6 +11,7 @@ from llama_index.core.base.llms.types import ChatMessage, MessageRole
 
 from mage.log_utils import get_logger, set_log_dir, switch_log_to_file, switch_log_to_stdout
 from mage.gen_config import get_llm
+from mage.token_counter import TokenCounter, TokenCounterCached
 
 logger = get_logger(__name__)
 
@@ -93,8 +94,20 @@ class ambiguous_fixer:
     def __init__(self, model: str, max_token: int, provider: str, cfg_path: str, use_golden_ref: bool = False):
         self.model = model
         self.llm = get_llm(model=model, max_token=max_token, provider=provider, cfg_path=cfg_path)
+        self.token_counter = (
+            TokenCounterCached(self.llm)
+            if TokenCounterCached.is_cache_enabled(self.llm)
+            else TokenCounter(self.llm)
+        )
         self.use_golden_ref = use_golden_ref
     
+    def generate(self, messages: List[ChatMessage]) -> ChatResponse:
+        logger.info(f"Fixer input message: {messages}")
+        resp, token_cnt = self.token_counter.count_chat(messages)
+        logger.info(f"Token count: {token_cnt}")
+        logger.info(f"{resp.message.content}")
+        return resp
+        
     def run(self, input_spec: str, reasons: str, golden_ref: str = None) -> str:
         msg = [
             ChatMessage(
@@ -115,9 +128,8 @@ class ambiguous_fixer:
                 role=MessageRole.SYSTEM
             )
         ]
-        response = self.llm.chat(
-            messages=msg
-        )
+        response = self.generate(msg)
+        self.token_counter.log_token_stats()
         
         logger.info(f"Get response from {self.model}: {response}")
 
@@ -148,10 +160,8 @@ class ambiguous_fixer:
                     role=MessageRole.USER
                 )
             ]
-
-        response = self.llm.chat(
-            messages=msg
-        )
+        self.token_counter.reset()
+        response = self.generate(msg)
         logger.info(f"Get response from {self.model}: {response}")
 
         return response.message.content
