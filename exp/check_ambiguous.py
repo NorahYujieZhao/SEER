@@ -17,23 +17,23 @@ logger = get_logger(__name__)
 
 args_dict = {
     # "model": "deepseek-reasoner",
-    "model": "gpt-4o-2024-08-06",
+    # "model": "gpt-4o-2024-08-06",
     # "model": "gpt-4o-mini-2024-07-18",
     # "model": "gemini-2.0-flash",
-    # "model": "claude-3-5-sonnet-20241022",
+    "model": "claude-3-5-sonnet-20241022",
     # "model_fixer": "models/gemini-2.0-flash",
-    # "model_fixer": "claude-3-5-sonnet-20241022",
-    "model_fixer": "gpt-4o-2024-08-06",
+    "model_fixer": "claude-3-5-sonnet-20241022",
+    # "model_fixer": "gpt-4o-2024-08-06",
     # "provider": "anthropic",
-    "provider": "openai",
+    # "provider": "openai",
     # "provider_fixer": "anthropic",
-    "provider_fixer": "openai",
+    # "provider_fixer": "openai",
 
     
     # "model": "claude-3-7-sonnet@20250219",
     # "model_fixer": "claude-3-7-sonnet@20250219",
-    # "provider": "vertexanthropic",
-    # "provider_fixer": "vertexanthropic",
+    "provider": "vertexanthropic",
+    "provider_fixer": "vertexanthropic",
 
     # "filter_instance": "Prob011|Prob012|Prob013|Prob014|Prob015|Prob152|Prob153|Prob154|Prob155|Prob156",
     # "filter_instance": "Prob051|Prob052|Prob053|Prob054|Prob055|Prob101|Prob102|Prob103|Prob104|Prob105",
@@ -143,6 +143,9 @@ def main():
                     print(f"Task: {task_id}, fix trial {fix_iter}, Classification: {classification}")
                 if fix_iter > 0 and classification == "unambiguous":
                     fixed_spec += 1
+                    fixed_spec_file_path = os.path.join(args.folder_path, f"{task_id}_prompt_fixed.txt")
+                    with open(fixed_spec_file_path, 'w') as fixed_spec_file:
+                        fixed_spec_file.write(input_spec)
 
     summary.sort()
     summary.append(f"Total Spec: {total_spec}, Ambiguous Spec: {ambiguous_spec}\n")

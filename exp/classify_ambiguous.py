@@ -36,8 +36,11 @@ Execute the following steps strictly:
     Timing Unspecified (e.g., missing clock-edge relationships)  
     State Machine Overlap (e.g., undefined priority between concurrent transitions)  
     Boundary Condition Gaps (e.g., undefined reset values or unhandled edge cases)  
-    Interface Protocol Violation (e.g., ambiguous handshake signal timing)  
-   Note: You should only pick out ambiguities that lead to diverging RTL implementations and substantive impact.
+    Interface Protocol Violation (e.g., ambiguous handshake signal timing)
+   There may be other types of ambiguities not listed here.
+   There may be multiple types for a single ambiguity or multiple ambiguities in a single spec.
+   Note: Ambiguous specifications may not always lead to diverging or wrong implementations.
+   You should only pick out ambiguities that lead to diverging RTL implementations and substantive impact.
 
 2. Implementation Contrast
    For each ambiguity, generate two minimal code snippets showing conflicting implementations.  
