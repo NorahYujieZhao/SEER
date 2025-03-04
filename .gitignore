@@ -1,0 +1,14 @@
+*.egg-info/
+*.vcd
+__pycache__/
+key.cfg
+wave.vcd
+output*/
+log*/
+data/
+!requirements.txt
+*.o
+*.d
+*.vvp
+dist/
+build/
