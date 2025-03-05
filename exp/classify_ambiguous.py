@@ -1,21 +1,10 @@
 import json
-from typing import Dict, List
-
-from llama_index.core.llms import LLM
-
-from llama_index.llms.anthropic import Anthropic
-from llama_index.llms.openai import OpenAI
-from llama_index.llms.gemini import Gemini
-
-# use this for Deepseek r1 and claude-3-5-sonnet
-# from openai import OpenAI
+from typing import Dict
 
 from llama_index.core.base.llms.types import ChatMessage, MessageRole
 from mage.gen_config import get_llm
-
-from mage.log_utils import get_logger, set_log_dir, switch_log_to_file, switch_log_to_stdout
+from mage.log_utils import get_logger
 from mage.prompts import ORDER_PROMPT
-
 from mage.token_counter import TokenCounter, TokenCounterCached
 
 logger = get_logger(__name__)
@@ -25,15 +14,16 @@ You are an expert in RTL design. You can always write SystemVerilog code with no
 """
 
 GENERATION_PROMPT = r"""
-Analyze the provided SystemVerilog specification for functional ambiguities that could lead to diverging implementations. 
-Focus on identifying cases where the spec allows at least two logically valid but functionally distinct RTL interpretations 
-(e.g., differing timing behaviors, state transitions, or output conditions). 
+Analyze the provided SystemVerilog specification for functional ambiguities that could lead to diverging implementations.
+Focus on identifying cases where the spec allows at least two logically valid but functionally distinct RTL interpretations
+(e.g., differing timing behaviors, state transitions, or output conditions).
 
 Execute the following steps strictly:
 
 1. Ambiguity Detection
-   Highlight exact specification clauses (quote text) with multiple interpretations.  
+   Highlight exact specification clauses (quote text) with multiple interpretations.
    If there are multiple ambiguities, list them separately.
+
    Classify ambiguity type:  
     Timing Unspecified (e.g., missing clock-edge relationships)  
     State Machine Overlap (e.g., undefined priority between concurrent transitions)  
@@ -45,11 +35,11 @@ Execute the following steps strictly:
    You should only pick out ambiguities that lead to diverging RTL implementations and substantive impact.
 
 2. Implementation Contrast
-   For each ambiguity, generate two minimal code snippets showing conflicting implementations.  
-   Annotate how each version would produce different simulation waveforms (e.g., signal timing diagrams).  
+   For each ambiguity, generate two minimal code snippets showing conflicting implementations.
+   Annotate how each version would produce different simulation waveforms (e.g., signal timing diagrams).
 
 3. Resolution Proposal
-   Suggest SPEC modification using IEEE SystemVerilog standard terminology.  
+   Suggest SPEC modification using IEEE SystemVerilog standard terminology.
    Provide assertion examples (SVA) to enforce intended behavior.
 
 {example_prompt}
@@ -63,13 +53,13 @@ EXAMPLE_OUTPUT_FORMAT = {
     "classification": "ambiguous or unambiguous (do not use any other words)",
 }
 
-CLASSIFICATION_5_SHOT_EXAMPLES=r"""
+CLASSIFICATION_5_SHOT_EXAMPLES = r"""
 Here are some examples of RTL ambiguity detection:
 Example 1:
 <example>
     "input_spec": "
 // Module: data_processor
-// Interface:   
+// Interface:
 //   input logic clk, rst_n
 //   input logic [31:0] data_in
 //   output logic data_valid
@@ -80,7 +70,7 @@ Example 1:
 // 3. Processing takes 1-3 cycles depending on data value
     ",
     "reasoning": r"
-[Ambiguity 1]  
+[Ambiguity 1]
     Source Clause: "Processing takes 1-3 cycles depending on data value"
     Type: Timing Unspecified
     Conflict Implementations:
@@ -89,7 +79,7 @@ Example 1:
             if (data_in[31]) pipe_stage <= 3;
             else            pipe_stage <= 1;
         end
-        
+
         // Version B: Variable latency
         always_comb begin
             case(data_in[31:30])
@@ -102,10 +92,10 @@ Example 1:
     Waveform Impact:
         Version A: Ignores 2-bit encoding, uses single-bit decision
         Version B: Fully utilizes 2-bit control field
-        
+
     Clarification: "Processing latency shall be determined by bits[31:30] as:
                    2'b11:3 cycles, 2'b01:2 cycles, others:1 cycle"
-                   
+
     SVA Assertion:
         assert property (@(posedge clk) disable iff (!rst_n)
             (enable && data_in[31:30]==2'b11) |-> \#\#3 data_valid);
@@ -113,7 +103,7 @@ Example 1:
             (enable && data_in[31:30]==2'b01) |-> \#\#2 data_valid);
         assert property (@(posedge clk) disable iff (!rst_n)
             (enable && data_in[31:30]!=2'b11 && data_in[31:30]!=2'b01) |-> \#\#1 data_valid);
-    
+
 ",
     "classification": "ambiguous"
 </example>
@@ -128,7 +118,7 @@ Example 2:
 // - Preemption allowed for higher priority requests
     ",
     "reasoning": r"
-[Ambiguity 1]  
+[Ambiguity 1]
     Source Clause: "Preemption allowed for higher priority requests"
     Type: State Machine Overlap
     Conflict Implementations:
@@ -142,7 +132,7 @@ Example 2:
                 4'b1000: grant = 4'b1000;
             endcase
         end
-        
+
         // Version B: Cycle-boundary preemption
         always_ff @(posedge clk) begin
             if(current_grant && higher_priority_req)
@@ -152,11 +142,11 @@ Example 2:
     Waveform Impact:
         Version A: Mid-cycle grant changes
         Version B: Grants update only at clock edges
-        
+
     Clarification: "Preemption shall only occur at clock boundaries"
-    
+
     SVA Assertion:
-        assert property (@(posedge clk) 
+        assert property (@(posedge clk)
             $changed(grant) |-> !$isunknown(clk));
 ",
     "classification": "ambiguous"
@@ -172,13 +162,13 @@ Example 3:
 // - Assert error_flag if invalid header within 16 cycles
 // - All operations synchronous to clk (100MHz)
     ",
-[Ambiguity 1]  
+[Ambiguity 1]
     Source Clause: "Detect sync pattern 0xA5 in first 2 bytes"
     Type: Boundary Condition Gap
     Conflict Implementations:
         // Version A: Check first 16 bits
         assign sync_ok = (data_stream[15:0] == 16'hA5);
-        
+
         // Version B: Check any consecutive 8 bits
         always_comb begin
             sync_ok = 0;
@@ -190,11 +180,11 @@ Example 3:
     Waveform Impact:
         Version A: Detects sync only at bits[15:0]
         Version B: May detect sync at bits[7:0], [8:1], ..., [23:16]
-        
+
     Clarification: "Sync pattern must match the first two bytes exactly"
-    
+
     SVA Assertion:
-        assert property (@(posedge clk) 
+        assert property (@(posedge clk)
             start_pulse |-> \#\#0 data_stream[15:0]==16'hA5);
 ",
     "classification": "ambiguous"
@@ -212,13 +202,13 @@ Example 4:
 // - Calculation completes exactly 32 cycles after en=1
     ",
     "reasoning": r"
-[Analysis]  
+[Analysis]
     Key Clarifications:
         1. Explicit timing constraint (32 cycles)
         2. Defined initialization value
         3. Specified polynomial format (LSB-first)
         4. Registration requirement
-        
+
     Valid Implementation:
         always_ff @(posedge clk) begin
             if (en) begin
@@ -231,7 +221,7 @@ Example 4:
             end
         end
         assign crc_out = (counter==32) ? crc : '0;
-        
+
     Waveform Consistency:
         All implementations will show:
         - Fixed 32-cycle latency
@@ -258,27 +248,27 @@ Example 5:
 // 4. Address calculation uses unsigned arithmetic
     ",
     "reasoning": r"
-[Ambiguity 1]  
+[Ambiguity 1]
     Source Clause: "Physical address = base_addr + addr_offset when request valid"
     Type: Unspecified Calculation
     Conflict Implementations:
         // Version A: Simple addition
         assign phys_addr = base_addr + addr_offset;
-        
+
         // Version B: Byte-offset scaling
         assign phys_addr = base_addr + (addr_offset << 2);  // Assume 4-byte granularity
 
     Waveform Impact:
         Version A: Address increments by 1 per offset
         Version B: Address increments by 4 per offset
-        
+
     Clarification: "addr_offset represents 4-byte words, calculation should be base_addr + (offset << 2)"
-    
+
     SVA Assertion:
-        assert property (@(posedge clk) 
+        assert property (@(posedge clk)
             request_valid |-> phys_addr == (base_addr + (addr_offset << 2)));
 
-[Ambiguity 2]  
+[Ambiguity 2]
     Source Clause: "Auto-refresh must occur every 100 cycles if no active requests"
     Type: Timing Window Overlap
     Conflict Implementations:
@@ -289,7 +279,7 @@ Example 5:
                 counter <= 0;
             end
         end
-        
+
         // Version Y: Overlapping refresh windows
         always_ff @(posedge clk) begin
             if (counter >= 100 && !active_request) begin
@@ -301,11 +291,11 @@ Example 5:
     Waveform Impact:
         Version X: Exact 100-cycle intervals
         Version Y: Allows refresh at cycle 100, 101, etc.
-        
+
     Clarification: "Refresh must occur precisely every 100 cycles, resetting counter after refresh start"
-    
+
     SVA Assertion:
-        assert property (@(posedge clk) 
+        assert property (@(posedge clk)
             $rose(refresh) |-> $past(counter,1) == 99);
 ",
     "classification": "ambiguous"
@@ -319,40 +309,47 @@ Key instruction: Direct output, no extra comments.
 As a reminder, please directly provide the content without adding any extra comments or explanations.
 """
 
+
 class ambiguous_classifier:
     def __init__(self, model: str, max_token: int, provider: str, cfg_path: str):
         self.model = model
-        self.llm = get_llm(model=model, max_token=max_token, provider=provider, cfg_path=cfg_path)
+        self.llm = get_llm(
+            model=model, max_token=max_token, provider=provider, cfg_path=cfg_path
+        )
         self.token_counter = (
             TokenCounterCached(self.llm)
             if TokenCounterCached.is_cache_enabled(self.llm)
             else TokenCounter(self.llm)
         )
-    def run(self, input_spec: str) -> Dict:
 
+    def run(self, input_spec: str) -> Dict:
+        if isinstance(self.token_counter, TokenCounterCached):
+            self.token_counter.set_enable_cache(True)
+
+        self.token_counter.set_cur_tag(self.__class__.__name__)
         msg = [
             ChatMessage(content=SYSTEM_PROMPT, role=MessageRole.SYSTEM),
             ChatMessage(
                 content=GENERATION_PROMPT.format(
-                    input_spec=input_spec,
-                    example_prompt=CLASSIFICATION_5_SHOT_EXAMPLES
+                    input_spec=input_spec, example_prompt=CLASSIFICATION_5_SHOT_EXAMPLES
                 ),
-                role=MessageRole.USER
+                role=MessageRole.USER,
             ),
             ChatMessage(
                 content=ORDER_PROMPT.format(
                     output_format="".join(json.dumps(EXAMPLE_OUTPUT_FORMAT, indent=4))
                 ),
-                role=MessageRole.USER
+                role=MessageRole.USER,
             ),
         ]
+        self.token_counter.reset()
         response, token_cnt = self.token_counter.count_chat(msg)
-        
+
         logger.info(f"Token count: {token_cnt}")
         logger.info(f"{response.message.content}")
         self.token_counter.log_token_stats()
 
-        #response = self.generate(msg)
+        # response = self.generate(msg)
         logger.info(f"Get response from {self.model}: {response.message.content}")
         try:
             # output_json_obj: Dict = json.loads(response.message.content, strict=False)
@@ -371,5 +368,5 @@ class ambiguous_classifier:
             logger.info(f"Json parse error: {e}")
             print(response)
             return None
-        
+
         return output_json_obj

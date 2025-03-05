@@ -122,7 +122,7 @@ class TokenCounter:
         self.max_parallel_requests: int = 10
         self.enable_reformat_json = isinstance(llm, Vertex)
         model = llm.metadata.model_name
-        if isinstance(llm, OpenAI):
+        if isinstance(model, OpenAI):
             self.encoding = tiktoken.encoding_for_model(model)
         elif isinstance(llm, Anthropic):
             self.encoding = llm.tokenizer
