@@ -5,6 +5,7 @@ import re
 from datetime import datetime
 
 from classify_ambiguous import ambiguous_classifier
+from fix_ambiguous import ambiguous_fixer
 from mage.gen_config import Config
 from mage.log_utils import get_logger, set_log_dir, switch_log_to_file
 
@@ -36,6 +37,14 @@ def main():
         cfg_path=args.key_cfg_path,
     )
 
+    fixer = ambiguous_fixer(
+        model=args.model,
+        max_token=8192,
+        provider=args.provider_fixer,
+        cfg_path=args.key_cfg_path,
+        use_golden_ref=args.use_golden_ref,
+    )
+
     timestamp = datetime.now().strftime("%Y%m%d")
     output_dir = f"output_ambiguous_{args.run_identifier}_{timestamp}"
     log_dir = f"log_ambiguous_{args.run_identifier}_{timestamp}"
@@ -44,6 +53,11 @@ def main():
 
     summary_file_path = os.path.join(output_dir, "summary_ambiguous_casestudy.txt")
     summary = []
+
+    total_spec = 0
+    ambiguous_spec = 0
+    fixed_spec = 0
+    golden_ref = None
 
     count = 0
 
@@ -62,6 +76,11 @@ def main():
                 with open(file_path, "r") as f:
                     input_spec = f.read()
 
+                if args.use_golden_ref:
+                    golden_ref_file_path = os.path.join(root, f"{task_id}_ref.sv")
+                    with open(golden_ref_file_path, "r") as f:
+                        golden_ref = f.read()
+
                 output_json_obj = classifier.run(input_spec)
 
                 classification = output_json_obj["classification"]
@@ -71,14 +90,62 @@ def main():
                 )
                 with open(output_file_path, "w") as output_file:
                     json.dump(output_json_obj, output_file, indent=4)
+
+                total_spec += 1
+                if classification == "ambiguous":
+                    ambiguous_spec += 1
+
                 summary.append(
                     f"Task: {task_id}, Ambiguity: {classification}, Reasoning: {reasoning}\n"
                 )
                 print(f"Task: {task_id}, Ambiguity: {classification}")
 
+                fix_iter = 0
+                while classification == "ambiguous" and fix_iter < 5:
+                    fix_iter += 1
+                    input_spec = fixer.run(
+                        input_spec, output_json_obj["reasoning"], golden_ref
+                    )
+                    logger.info(
+                        f"Fixed spec, try to classify again -- trial {fix_iter}"
+                    )
+                    output_json_obj_fixed = classifier.run(input_spec)
+
+                    classification = output_json_obj_fixed["classification"]
+
+                    output_file_path_fixed = os.path.join(
+                        output_dir_per_task, f"check_ambiguous_fixed.json"
+                    )
+                    with open(output_file_path_fixed, "w") as output_file_fixed:
+                        json.dump(output_json_obj_fixed, output_file_fixed, indent=4)
+
+                    summary.append(
+                        f"Task: {task_id}, fix trial {fix_iter}, Classification: {classification}\n"
+                    )
+                    print(
+                        f"Task: {task_id}, fix trial {fix_iter}, Classification: {classification}"
+                    )
+                if fix_iter > 0 and classification == "unambiguous":
+                    fixed_spec += 1
+                    fixed_spec_file_path = os.path.join(
+                        args.folder_path, f"{task_id}_prompt_fixed.txt"
+                    )
+                    with open(fixed_spec_file_path, "w") as fixed_spec_file:
+                        fixed_spec_file.write(input_spec)
+
     summary.sort()
+    summary.append(f"\nStatistics:\n")
+    summary.append(f"Total Specs: {total_spec}\n")
+    summary.append(f"Ambiguous Specs: {ambiguous_spec}\n")
+    summary.append(f"Fixed Specs: {fixed_spec}\n")
+
     with open(summary_file_path, "a") as summary_file:
         summary_file.writelines(summary)
+
+    print(f"\nFinal Statistics:")
+    print(f"Total Specs: {total_spec}")
+    print(f"Ambiguous Specs: {ambiguous_spec}")
+    print(f"Fixed Specs: {fixed_spec}")
 
 
 if __name__ == "__main__":
