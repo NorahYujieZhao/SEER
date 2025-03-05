@@ -145,6 +145,9 @@ def main():
                     print(f"Task: {task_id}, fix trial {fix_iter}, Classification: {classification}")
                 if fix_iter > 0 and classification == "unambiguous":
                     fixed_spec += 1
+                    fixed_spec_file_path = os.path.join(args.folder_path, f"{task_id}_prompt_fixed.txt")
+                    with open(fixed_spec_file_path, 'w') as fixed_spec_file:
+                        fixed_spec_file.write(input_spec)
 
     summary.sort()
     summary.append(f"Total Spec: {total_spec}, Ambiguous Spec: {ambiguous_spec}\n")
