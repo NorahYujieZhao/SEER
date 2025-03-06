@@ -14,13 +14,26 @@ You are an expert in RTL design. You can always write SystemVerilog code with no
 """
 
 GENERATION_PROMPT = r"""
- I will provide you with SystemVerilog specification. Your job is to determine whether this code implements combinational logic (CMB) or sequential logic (SEQ). Then, please explain your reasoning in detail, pointing out the specific signals or language constructs that lead you to your conclusion.
+Analyze the provided SystemVerilog specification to classify it as Combinational (CMB) or Sequential (SEQ) logic.
 
+Key Decision Criteria:
+1. SEQ Indicators (ANY of these qualifies as sequential):
+   - Clock-edge triggered blocks (posedge/negedge in sensitivity list)
+   - Explicit registers (always_ff, flip-flop templates)
+   - State variables retained between cycles
+   - Usage of non-blocking assignments (<=) in clocked blocks
 
-Instructions:
+2. CMB Indicators (ALL must apply):
+   - No edge-sensitive constructs
+   - Outputs purely function of current inputs
+   - Uses always_comb/always @* or continuous assignments
+   - Any "state" variables are combinatorial precursors (immediately resolved)
 
-Carefully read and analyze the provided code.
-Determine whether it describes a purely combinational module (CMB) or a sequential module (SEQ).
+Critical Differentiation Guidelines:
+- Combinational state machines using case/if for next_state without registration → CMB
+- Latches (level-sensitive) → Classify as SEQ per industry convention
+- Asynchronous reset alone doesn't make logic sequential
+- Edge detection in testbenches doesn't affect module classification
 
 {example_prompt}
 <input_spec>
@@ -40,6 +53,33 @@ Example 1:
 
 Example 2:
 <example> "input_spec": " // Module: adder // Interface: // input logic [7:0] a, b // output logic [7:0] sum // // Specification: // 1. The module computes the sum of inputs a and b combinationally. // 2. There is no clock or state element involved. ", "reasoning": r" The absence of any clock or state-related signals and the direct assignment of the output based on inputs indicate that the module is purely combinational. ", "classification": "CMB" </example>
+
+Boundary Case Examples:
+
+Example 3:
+<example>
+input_spec: "// Combinational state machine
+always_comb begin
+    case(current_state)
+        S0: next_state = (cond) ? S1 : S0;
+        S1: next_state = S2;
+        default: next_state = S0;
+    endcase
+end"
+output: {
+    "classification": "CMB"
+}
+</example>
+
+Example 4:
+<example>
+input_spec: "// Latch implementation
+always_latch begin
+    if (enable) q <= d;"
+output: {
+    "classification": "SEQ"
+}
+</example>
 """
 
 EXTRA_ORDER_PROMPT = r"""
