@@ -12,3 +12,11 @@ data/
 *.vvp
 dist/
 build/
+verilog-eval/
+*.log
+*.json
+*.csv
+*.jsonl
+*.jsonl.gz
+*.jsonl.gz.part
+*.zip

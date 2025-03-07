@@ -89,6 +89,13 @@ class SimReviewer:
         self.golden_rtl_path = golden_rtl_path
 
     def review(self) -> Tuple[bool, int, str]:
+        """
+        Review the simulation results for current rtl.sv and tb.sv
+        Returns:
+        - is_pass: bool
+        - mismatch_cnt: int
+        - sim_log: str
+        """
         return sim_review(
             self.output_path_per_run,
             self.golden_rtl_path,

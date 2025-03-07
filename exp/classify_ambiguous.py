@@ -24,10 +24,10 @@ Execute the following steps strictly:
    Highlight exact specification clauses (quote text) with multiple interpretations.
    If there are multiple ambiguities, list them separately.
 
-   Classify ambiguity type:  
-    Timing Unspecified (e.g., missing clock-edge relationships)  
-    State Machine Overlap (e.g., undefined priority between concurrent transitions)  
-    Boundary Condition Gaps (e.g., undefined reset values or unhandled edge cases)  
+   Classify ambiguity type:
+    Timing Unspecified (e.g., missing clock-edge relationships)
+    State Machine Overlap (e.g., undefined priority between concurrent transitions)
+    Boundary Condition Gaps (e.g., undefined reset values or unhandled edge cases)
     Interface Protocol Violation (e.g., ambiguous handshake signal timing)
    There may be other types of ambiguities not listed here.
    There may be multiple types for a single ambiguity or multiple ambiguities in a single spec.
@@ -49,7 +49,7 @@ Execute the following steps strictly:
 """
 
 EXAMPLE_OUTPUT_FORMAT = {
-    "reasoning": "All reasoning steps and advices to avoid ambiguous",
+    "reasoning": "All reasoning steps",
     "classification": "ambiguous or unambiguous (do not use any other words)",
 }
 
@@ -190,116 +190,6 @@ Example 3:
     "classification": "ambiguous"
 </example>
 
-Example 4:
-<example>
-    "input_spec": "
-// Module: crc_generator
-// Specification:
-// - Compute CRC32 on 32-bit input data
-// - Initial value: 0xFFFFFFFF
-// - Polynomial: 0x04C11DB7 (LSB-first)
-// - Output registered at end of calculation
-// - Calculation completes exactly 32 cycles after en=1
-    ",
-    "reasoning": r"
-[Analysis]
-    Key Clarifications:
-        1. Explicit timing constraint (32 cycles)
-        2. Defined initialization value
-        3. Specified polynomial format (LSB-first)
-        4. Registration requirement
-
-    Valid Implementation:
-        always_ff @(posedge clk) begin
-            if (en) begin
-                crc <= 32'hFFFF_FFFF;
-                counter <= 0;
-            end
-            else if (counter < 32) begin
-                crc <= next_crc(crc, data);
-                counter <= counter + 1;
-            end
-        end
-        assign crc_out = (counter==32) ? crc : '0;
-
-    Waveform Consistency:
-        All implementations will show:
-        - Fixed 32-cycle latency
-        - Identical polynomial processing
-        - Synchronous output registration
-",
-    "classification": "unambiguous"
-
-Example 5:
-<example>
-    "input_spec": "
-// Module: memory_controller
-// Interface:
-//   input logic clk, rst_n
-//   input logic [7:0] addr_offset
-//   input logic [31:0] base_addr
-//   output logic [31:0] phys_addr
-//   output logic refresh_ack
-//
-// Specification:
-// 1. Physical address = base_addr + addr_offset when request valid
-// 2. Auto-refresh must occur every 100 cycles if no active requests
-// 3. refresh_ack should assert within 2 cycles of refresh start
-// 4. Address calculation uses unsigned arithmetic
-    ",
-    "reasoning": r"
-[Ambiguity 1]
-    Source Clause: "Physical address = base_addr + addr_offset when request valid"
-    Type: Unspecified Calculation
-    Conflict Implementations:
-        // Version A: Simple addition
-        assign phys_addr = base_addr + addr_offset;
-
-        // Version B: Byte-offset scaling
-        assign phys_addr = base_addr + (addr_offset << 2);  // Assume 4-byte granularity
-
-    Waveform Impact:
-        Version A: Address increments by 1 per offset
-        Version B: Address increments by 4 per offset
-
-    Clarification: "addr_offset represents 4-byte words, calculation should be base_addr + (offset << 2)"
-
-    SVA Assertion:
-        assert property (@(posedge clk)
-            request_valid |-> phys_addr == (base_addr + (addr_offset << 2)));
-
-[Ambiguity 2]
-    Source Clause: "Auto-refresh must occur every 100 cycles if no active requests"
-    Type: Timing Window Overlap
-    Conflict Implementations:
-        // Version X: Strict cycle counting
-        always_ff @(posedge clk) begin
-            if (counter == 99 && !active_request) begin
-                refresh <= 1;
-                counter <= 0;
-            end
-        end
-
-        // Version Y: Overlapping refresh windows
-        always_ff @(posedge clk) begin
-            if (counter >= 100 && !active_request) begin
-                refresh <= 1;
-                counter <= 0;
-            end
-        end
-
-    Waveform Impact:
-        Version X: Exact 100-cycle intervals
-        Version Y: Allows refresh at cycle 100, 101, etc.
-
-    Clarification: "Refresh must occur precisely every 100 cycles, resetting counter after refresh start"
-
-    SVA Assertion:
-        assert property (@(posedge clk)
-            $rose(refresh) |-> $past(counter,1) == 99);
-",
-    "classification": "ambiguous"
-</example>
 """
 
 EXTRA_ORDER_PROMPT = r"""

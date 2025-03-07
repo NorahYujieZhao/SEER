@@ -125,7 +125,7 @@ def main():
                     print(
                         f"Task: {task_id}, fix trial {fix_iter}, Classification: {classification}"
                     )
-                if fix_iter > 0 and classification == "unambiguous":
+                if fix_iter > 0:
                     fixed_spec += 1
                     fixed_spec_file_path = os.path.join(
                         args.folder_path, f"{task_id}_prompt_fixed.txt"

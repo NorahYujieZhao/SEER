@@ -1,8 +1,9 @@
+import json
 import os
 import re
 import sys
 import traceback
-from typing import List, Tuple
+from typing import Tuple
 
 from llama_index.core.llms import LLM
 
@@ -25,9 +26,9 @@ class TopAgent:
             if TokenCounterCached.is_cache_enabled(llm)
             else TokenCounter(llm)
         )
-        self.sim_max_retry = 4
-        self.rtl_max_candidates = 20
-        self.rtl_selected_candidates = 2
+        self.sim_max_retry = 1
+        self.rtl_max_candidates = 1
+        self.rtl_selected_candidates = 1
         self.is_ablation = False
         self.redirect_log = False
         self.output_path = "./output"
@@ -61,7 +62,9 @@ class TopAgent:
         with open(f"{self.output_dir_per_run}/{file_name}", "w") as f:
             f.write(content)
 
-    def run_instance(self, spec: str) -> Tuple[bool, str]:
+    def run_instance(
+        self, spec: str, testbench_num: int = 1, rtl_num: int = 1
+    ) -> Tuple[bool, str]:
         """
         Run a single instance of the benchmark
         Return value:
@@ -71,143 +74,92 @@ class TopAgent:
         assert self.tb_gen
         assert self.rtl_gen
         assert self.sim_reviewer
-        assert self.sim_judge
-        assert self.rtl_edit
+        # assert self.sim_judge
+        # assert self.rtl_edit
 
+        # 生成多个testbench
+        testbenches = []
         self.tb_gen.reset()
         self.tb_gen.set_golden_tb_path(self.golden_tb_path)
         if not self.golden_tb_path:
+            print("No golden testbench provided")
             logger.info("No golden testbench provided")
-        testbench, interface = self.tb_gen.chat(spec)
-        logger.info("Initial tb:")
-        logger.info(testbench)
-        logger.info("Initial if:")
-        logger.info(interface)
-        self.write_output(testbench, "tb.sv")
+
+        for i in range(testbench_num):
+            print(f"Generating testbench {i}")
+            logger.info(f"Generating testbench {i}")
+            testbench, interface = self.tb_gen.chat(spec)
+            logger.info(f"Initial tb {i}:")
+            logger.info(testbench)
+            logger.info("Initial if:")
+            logger.info(interface)
+            self.write_output(testbench, f"tb_{i}.sv")
+            testbenches.append(testbench)
         self.write_output(interface, "if.sv")
+
+        # 生成多个RTL代码
         self.rtl_gen.reset()
         logger.info(spec)
-
-        is_syntax_pass, rtl_code = self.rtl_gen.chat(
-            input_spec=spec,
-            testbench=testbench,
-            interface=interface,
-            rtl_path=os.path.join(self.output_dir_per_run, "rtl.sv"),
-        )
-        if not is_syntax_pass:
-            return False, rtl_code
-        self.write_output(rtl_code, "rtl.sv")
-        logger.info("Initial rtl:")
-        logger.info(rtl_code)
-
-        tb_need_fix = True
-        rtl_need_fix = True
-        sim_log = ""
-        for i in range(self.sim_max_retry):
-            # run simulation judge, overwrite is_sim_pass
-            is_sim_pass, sim_mismatch_cnt, sim_log = self.sim_reviewer.review()
-            if is_sim_pass:
-                tb_need_fix = False
-                rtl_need_fix = False
-                break
-            self.sim_judge.reset()
-            tb_need_fix = self.sim_judge.chat(spec, sim_log, rtl_code, testbench)
-            if tb_need_fix:
-                self.tb_gen.reset()
-                if i == 0:
-                    self.tb_gen.gen_display_queue = False
-                    logger.info("Fallback from display queue to display moment")
-                else:
-                    self.tb_gen.set_failed_trial(sim_log, rtl_code, testbench)
-
-                testbench, _ = self.tb_gen.chat(spec)
-                self.write_output(testbench, "tb.sv")
-                logger.info("Revised tb:")
-                logger.info(testbench)
+        rtl_codes = []
+        for i in range(rtl_num):
+            logger.info(f"Generating RTL {i}")
+            is_syntax_pass, rtl_code = self.rtl_gen.chat(
+                input_spec=spec,
+                interface=interface,
+                rtl_path=os.path.join(self.output_dir_per_run, f"rtl_{i}.sv"),
+                enable_cache=True,
+            )
+            if is_syntax_pass:
+                self.write_output(rtl_code, f"rtl_{i}.sv")
+                logger.info(f"Initial rtl {i}:")
+                logger.info(rtl_code)
+                rtl_codes.append(rtl_code)
             else:
-                break
+                logger.info(f"RTL {i} syntax check failed")
 
-        assert not tb_need_fix, f"tb_need_fix should be False. sim_log: {sim_log}"
+        # 创建结果矩阵
+        sim_results = []  # List[List[Tuple[bool, int, str]]]
+        best_rtl_idx = 0
+        best_tb_idx = 0
+        min_mismatch = float("inf")
 
-        candidates_info: List[Tuple[str, int, str]] = []
-        if rtl_need_fix:
-            # Candidates Generation
-            assert (
-                sim_mismatch_cnt > 0
-            ), f"rtl_need_fix should be True only when sim_mismatch_cnt > 0. sim_log: {sim_log}"
-            self.rtl_gen.reset()
-            candidates = [
-                self.rtl_gen.chat(
-                    input_spec=spec,
-                    testbench=testbench,
-                    interface=interface,
-                    rtl_path=os.path.join(self.output_dir_per_run, "rtl.sv"),
-                    enable_cache=True,
-                )
-            ]  # Write Cache
-            if self.rtl_max_candidates > 1:
-                candidates += self.rtl_gen.gen_candidates(
-                    input_spec=spec,
-                    testbench=testbench,
-                    interface=interface,
-                    rtl_path=os.path.join(self.output_dir_per_run, "rtl.sv"),
-                    candidates_num=self.rtl_max_candidates - 1,
-                    enable_cache=True,
-                )
-            for i in range(self.rtl_max_candidates):
+        # 对每个RTL和每个testbench进行仿真
+        for i, rtl_code in enumerate(rtl_codes):
+            sim_row = []
+            for j, testbench in enumerate(testbenches):
+                # 写入当前要测试的RTL和testbench
+                self.write_output(rtl_code, "rtl.sv")
+                self.write_output(testbench, "tb.sv")
+
+                # 运行仿真
+                is_sim_pass, sim_mismatch_cnt, sim_log = self.sim_reviewer.review()
+                sim_row.append(sim_mismatch_cnt)
+
+                # 更新最佳结果
+                if sim_mismatch_cnt < min_mismatch:
+                    min_mismatch = sim_mismatch_cnt
+                    best_rtl_idx = i
+                    best_tb_idx = j
+
                 logger.info(
-                    f"Candidate generation: round {i + 1} / {self.rtl_max_candidates}"
+                    f"RTL {i} with TB {j}: pass={is_sim_pass}, mismatch={sim_mismatch_cnt}"
                 )
-                is_syntax_pass_candiate, rtl_code_candidate = candidates[i]
-                if not is_syntax_pass_candiate:
-                    continue
-                self.write_output(rtl_code_candidate, "rtl.sv")
-                is_sim_pass_candidate, sim_mismatch_cnt_candidate, sim_log_candidate = (
-                    self.sim_reviewer.review()
-                )
-                if is_sim_pass_candidate:
-                    rtl_code = rtl_code_candidate
-                    sim_mismatch_cnt = sim_mismatch_cnt_candidate
-                    sim_log = sim_log_candidate
-                    rtl_need_fix = False
-                    break
-                candidates_info.append(
-                    (rtl_code_candidate, sim_mismatch_cnt_candidate, sim_log_candidate)
-                )
+            sim_results.append(sim_row)
 
-        candidates_info.sort(key=lambda x: x[1])
-        candidates_info_unique_sign = set()
-        candidates_info_unique = []
-        for candidate in candidates_info:
-            if candidate[1] not in candidates_info_unique_sign:
-                candidates_info_unique_sign.add(candidate[1])
-                candidates_info_unique.append(candidate)
+        # 保存仿真结果矩阵
+        sim_matrix = {
+            "sim_results": sim_results,
+            "best_rtl_idx": best_rtl_idx,
+            "best_tb_idx": best_tb_idx,
+            "min_mismatch": min_mismatch,
+        }
+        self.write_output(json.dumps(sim_matrix, indent=4), "sim_matrix.json")
 
-        if rtl_need_fix:
-            # Editor iteration
-            for i in range(self.rtl_selected_candidates):
-                logger.info(
-                    f"Selected candidate: round {i + 1} / {self.rtl_selected_candidates}"
-                )
-                i = i % len(candidates_info_unique)
-                rtl_code, sim_mismatch_cnt, sim_log = candidates_info_unique[i]
-                with open(f"{self.output_dir_per_run}/rtl.sv", "w") as f:
-                    f.write(rtl_code)
-                self.rtl_edit.reset()
-                is_sim_pass, rtl_code = self.rtl_edit.chat(
-                    spec=spec,
-                    output_dir_per_run=self.output_dir_per_run,
-                    sim_failed_log=sim_log,
-                    sim_mismatch_cnt=sim_mismatch_cnt,
-                )
-                if is_sim_pass:
-                    rtl_need_fix = False
-                    break
+        # 使用最佳的RTL代码
+        best_rtl = rtl_codes[best_rtl_idx]
+        self.write_output(best_rtl, "rtl_best.sv")
 
-        if not is_sim_pass:  # Run if keep failing before last try
-            is_sim_pass, _, _ = self.sim_reviewer.review()
-
-        return is_sim_pass, rtl_code
+        return min_mismatch == 0, best_rtl
 
     def run_instance_ablation(self, spec: str) -> Tuple[bool, str]:
         """
@@ -227,7 +179,7 @@ class TopAgent:
         self.write_output(rtl_code, "rtl.sv")
         return is_syntax_pass, rtl_code
 
-    def _run(self, spec: str) -> Tuple[bool, str]:
+    def _run(self, spec: str, testbench_num: int, rtl_num: int) -> Tuple[bool, str]:
         try:
             if os.path.exists(f"{self.output_dir_per_run}/properly_finished.tag"):
                 os.remove(f"{self.output_dir_per_run}/properly_finished.tag")
@@ -238,12 +190,15 @@ class TopAgent:
             )
             self.rtl_gen = RTLGenerator(self.token_counter)
             self.tb_gen = TBGenerator(self.token_counter)
-            self.sim_judge = SimJudge(self.token_counter)
-            self.rtl_edit = RTLEditor(
-                self.token_counter, sim_reviewer=self.sim_reviewer
+            # self.sim_judge = SimJudge(self.token_counter)
+            # self.rtl_edit = RTLEditor(
+            #    self.token_counter, sim_reviewer=self.sim_reviewer
+            # )
+            print(
+                f"Running instance with testbench_num: {testbench_num} and rtl_num: {rtl_num}"
             )
             ret = (
-                self.run_instance(spec)
+                self.run_instance(spec, testbench_num, rtl_num)
                 if not self.is_ablation
                 else self.run_instance_ablation(spec)
             )
@@ -263,6 +218,8 @@ class TopAgent:
         spec: str,
         golden_tb_path: str | None = None,
         golden_rtl_blackbox_path: str | None = None,
+        testbench_num: int = 1,
+        rtl_num: int = 1,
     ) -> Tuple[bool, str]:
         self.golden_tb_path = golden_tb_path
         self.golden_rtl_blackbox_path = golden_rtl_blackbox_path
@@ -271,15 +228,21 @@ class TopAgent:
         os.makedirs(self.output_path, exist_ok=True)
         os.makedirs(self.output_dir_per_run, exist_ok=True)
         set_log_dir(log_dir_per_run)
+        print(
+            f"Running instance with testbench_num: {testbench_num} and rtl_num: {rtl_num}"
+        )
         if self.redirect_log:
             with open(f"{log_dir_per_run}/mage_rtl.log", "w") as f:
-                sys.stdout = f
-                sys.stderr = f
-                result = self._run(spec)
+                # sys.stdout = f
+                # sys.stderr = f
+                print(
+                    f"Running instance with testbench_num: {testbench_num} and rtl_num: {rtl_num}"
+                )
+                result = self._run(spec, testbench_num=testbench_num, rtl_num=rtl_num)
             sys.stdout = sys.__stdout__
             sys.stderr = sys.__stderr__
         else:
-            result = self._run(spec)
+            result = self._run(spec, testbench_num=testbench_num, rtl_num=rtl_num)
         # Redirect log contains format with rich text.
         # Provide a rich-free version for log parsing or less viewing.
         if self.redirect_log:

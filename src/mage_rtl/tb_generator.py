@@ -225,8 +225,10 @@ class TBGenerator:
         )
 
     def generate(self, messages: List[ChatMessage]) -> ChatResponse:
+
         logger.info(f"TB generator input message: {messages}")
         resp, token_cnt = self.token_counter.count_chat(messages)
+        print(f"Generating testbench")
         logger.info(f"Token count: {token_cnt}")
         logger.info(f"{resp.message.content}")
         return resp
@@ -299,7 +301,8 @@ class TBGenerator:
         self.history = []
         self.token_counter.set_cur_tag(self.__class__.__name__)
         self.history.extend(self.get_init_prompt_messages(input_spec))
-        for _ in range(self.json_decode_max_trial):
+        for j in range(self.json_decode_max_trial):
+            print(f"json decode max trial: {j}")
             response = self.generate(self.history + self.get_order_prompt_messages())
             resp_obj = self.parse_output(response)
             if not resp_obj.reasoning.startswith("Json Decode Error"):

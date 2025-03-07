@@ -216,16 +216,15 @@ class RTLGenerator:
     def chat(
         self,
         input_spec: str,
-        testbench: str,
         interface: str,
         rtl_path: str,
         enable_cache: bool = False,
     ) -> Tuple[bool, str]:
         if isinstance(self.token_counter, TokenCounterCached):
-            self.token_counter.set_enable_cache(enable_cache)
+            self.token_counter.set_enable_cache(True)
         self.history = []
         self.token_counter.set_cur_tag(self.__class__.__name__)
-        self.generated_tb = testbench
+
         self.generated_if = interface
         self.history.extend(self.get_init_prompt_messages(input_spec))
         for _ in range(self.max_trials):
@@ -251,7 +250,6 @@ class RTLGenerator:
     def gen_candidates(
         self,
         input_spec: str,
-        testbench: str,
         interface: str,
         rtl_path: str,
         candidates_num: int,
@@ -261,7 +259,8 @@ class RTLGenerator:
             self.token_counter.set_enable_cache(enable_cache)
         self.history = []
         self.token_counter.set_cur_tag(self.__class__.__name__)
-        self.generated_tb = testbench
+        # self.generated_tb = testbench
+        self.generated_tb = False
         self.generated_if = interface
         self.history.extend(self.get_init_prompt_messages(input_spec))
         ret: List[Tuple[bool, str]] = [(False, "") for _ in range(candidates_num)]
