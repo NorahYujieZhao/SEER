@@ -12,7 +12,7 @@ args_dict = {
     "temperature": 0.85,
     "top_p": 0.95,
     "max_token": 8192,
-    "key_cfg_path": "./key.cfg",
+    "key_cfg_path": "../key.cfg",
 }
 
 

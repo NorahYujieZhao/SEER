@@ -20,7 +20,7 @@ args_dict = {
 
 def main():
     args = argparse.Namespace(**args_dict)
-    cfg = Config("./key.cfg")
+    cfg = Config("../key.cfg")
     llm = get_llm(model=args.model, api_key=cfg["OPENAI_API_KEY"], max_tokens=4096)
     rtl_gen = RTLGenerator(llm)
     spec_dict = get_benchmark_contents(
