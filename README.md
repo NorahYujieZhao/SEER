@@ -19,7 +19,7 @@ cd MAGE
 # Continue after successfully installed conda
 conda create -n mage python=3.11
 conda activate mage
-pip install .
+pip install -Ue .
 ```
 
 ### 2.>To set api key：
@@ -70,6 +70,9 @@ Icarus Verilog version 12.0 (stable) (v12_0)
 ```
 # By apt
 sudo apt install verilator
+
+# By Brew
+brew install verilator
 
 # By Compilation
 git clone https://github.com/verilator/verilator
@@ -134,7 +137,8 @@ git submodule update --init --recursive
 
 ## Run Guide
 ```
-python tests/test_top_agent.py
+cd tests
+python test_llm_chat.py
 ```
 
 Run arguments can be set in the file like:
