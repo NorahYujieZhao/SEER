@@ -62,6 +62,11 @@ EXTRA_ORDER_PROMPT = r"""
 5. Ensure that all outputs and internal signals maintain their correct behavior after modifications.
 6. Use clear, well-commented RTL code, and ensure proper declarations (e.g., using logic, wire, or reg as appropriate).
 7. Your final response should include both the revised RTL code and an explanation of the modifications made.
+
+The file content which is going to be edited is given below:
+<rtl_code>
+{rtl_code}
+</rtl_code>
 """
 
 # The prompt above comes from:
@@ -85,10 +90,10 @@ Output after running given action:
 EXAMPLE_OUTPUT = {
     "reasoning": "All reasoning steps",
     "action_input": {
-        "command": "replace_content_by_matching",
+        "command": "remove_content_redundancy",
         "args": {
-            "old_content": "content to be replaced",
-            "new_content": "content to replace",
+            "old_content": "if (a && b && c) begin\n    out <= 1;\nend else if (a && b) begin\n    out <= 1;\nend",
+            "new_content": "if (a && b) begin\n    out <= 1;\nend",
         },
     },
 }
@@ -104,7 +109,7 @@ class RTLEditorStepOutput(BaseModel):
     action_input: ActionInput
 
 
-class RTLEditor:
+class RTLCoverageEditor:
     def __init__(
         self,
         token_counter: TokenCounter,
@@ -112,17 +117,19 @@ class RTLEditor:
     ):
         self.token_counter = token_counter
         self.history: List[ChatMessage] = []
-        self.max_trials = 15
-        self.succeed_history_max_length = 10
-        self.fail_history_max_length = 6
+        self.max_trials = 3
+        self.succeed_history_max_length = 2
+        self.fail_history_max_length = 2
         self.is_done = False
-        self.last_mismatch_cnt: int | None = None
+        # self.last_mismatch_cnt: int | None = None
+        self.last_coverage: float | None = None
         self.sim_reviewer = sim_reviewer
 
     def reset(self):
         self.is_done = False
         self.history = []
-        self.last_mismatch_cnt: int | None = None
+        # self.last_mismatch_cnt: int | None = None
+        self.last_coverage: float | None = None
 
     def write_rtl(self, content: str) -> None:
         with open(self.rtl_path, "w") as f:
@@ -142,15 +149,15 @@ class RTLEditor:
                 "is_syntax_pass": False,
                 "is_sim_pass": False,
                 "error_msg": syntax_output,
-                "sim_mismatch_cnt": 0,
+                "coverage": 0.0,
             }
-        is_sim_pass, sim_mismatch_cnt, sim_output = self.sim_reviewer.review()
-        assert isinstance(sim_mismatch_cnt, int)
+        is_sim_pass, coverage, sim_output = self.sim_reviewer.review_with_coverage()
+        assert isinstance(coverage, float)
         return {
             "is_syntax_pass": True,
             "is_sim_pass": is_sim_pass,
             "error_msg": "" if is_sim_pass else sim_output,
-            "sim_mismatch_cnt": sim_mismatch_cnt,
+            "coverage": coverage,
         }
 
     def judge_replace_action_execution(
@@ -174,49 +181,41 @@ class RTLEditor:
             )
             self.write_rtl(old_file_content)
             return ret
-        sim_mismatch_cnt = ret["sim_mismatch_cnt"]
-        if (
-            self.last_mismatch_cnt is not None
-            and sim_mismatch_cnt > self.last_mismatch_cnt
-        ):
-            logger.info(
-                f"Mismatch_cnt {sim_mismatch_cnt} > last {self.last_mismatch_cnt}. Action not executed."
-            )
+
+        coverage = ret["coverage"]
+        if not ret["is_sim_pass"]:
+            # Must maintain 100% functionality
+            logger.info("Simulation failed. Action not executed.")
             self.write_rtl(old_file_content)
-            assert isinstance(ret["error_msg"], str)
-            ret["error_msg"] += (
-                "Mismatch_cnt increased after the replacement. "
-                f"{action_name} not executed."
-            )
-        elif sim_mismatch_cnt == 0 and ret["is_sim_pass"] is False:
-            logger.info(
-                f"Mismatch_cnt {sim_mismatch_cnt} == 0 but sim failed. Action not executed."
-            )
+            return ret
+
+        if self.last_coverage is not None and coverage <= self.last_coverage:
+            # Only accept changes that improve coverage
+            logger.info(f"Coverage {coverage} not improved from {self.last_coverage}")
             self.write_rtl(old_file_content)
-            assert isinstance(ret["error_msg"], str)
-            ret["error_msg"] += (
-                "Mismatch_cnt is 0 but sim failed. " f"{action_name} not executed."
-            )
+            ret["error_msg"] += "Coverage not improved. Action not executed."
+
         else:
-            # Accept replace
-            logger.info(
-                f"Mismatch_cnt {sim_mismatch_cnt} <= last {self.last_mismatch_cnt}. Action executed."
-            )
-            self.last_mismatch_cnt = ret["sim_mismatch_cnt"]
+            # Accept change
+            logger.info(f"Coverage improved from {self.last_coverage} to {coverage}")
+            self.last_coverage = coverage
             ret["is_action_executed"] = True
-            if self.last_mismatch_cnt == 0:
+            if abs(coverage - 100.0) < 0.001:  # Check if we reached 100%
                 self.is_done = True
 
         return ret
 
-    def replace_content_by_matching(
+    def remove_content_redundancy(
         self, old_content: str, new_content: str
     ) -> Dict[str, Any]:
         """
-        Replace the content of the matching line in the file with the new content.
-        Syntax check is performed after the replacement.
-        Please ONLY replace the content that NEEDS to be modified. Don't change the content that is correct.
-        Please make sure old_content only occurs once in the file.
+        Replace redundant content in the RTL file with more concise content while maintaining functionality.
+        Syntax check and coverage check are performed after the replacement.
+        The replacement must:
+        1. Maintain 100% functional correctness (all testbench cases must still pass)
+        2. Improve line coverage by removing redundant code
+        3. Only replace content that appears exactly once in the file
+
         Input:
             old_content: The old content of the file.
             new_content: The new content to replace the matching line.
@@ -224,28 +223,34 @@ class RTLEditor:
             A dictionary containing :
                 1. Whether the action is executed.
                 2. The error message if the action is not executed.
-                3. Other information like syntax check result and simulation check result.
+                3. Other information like Current coverage percentage (coverage), syntax check result and simulation check result.
+
         Example:
             Before:
             <example_rtl>
-                1 module test;
-                2   reg a;
-                3   reg b;
-                4 endmodule
+                always @(posedge clk) begin
+                    if (a && b && c) begin
+                        out <= 1;  // This line is covered
+                    end else if (a && b) begin
+                        out <= 1;  // This line is never reached (redundant)
+                    end
+                end
             </example_rtl>
             Action:
             <action_input>
-                "command": "replace_content_by_matching",
+                "command": "remove_content_redundancy",
                 "args": {
-                    "old_content": "  reg a;\n  reg b;",
-                    "new_content": "  logic a;",
+                    "old_content": "if (a && b && c) begin\n    out <= 1;\nend else if (a && b) begin\n    out <= 1;\nend",
+                    "new_content": "if (a && b) begin\n    out <= 1;\nend"
                 },
             </action_input>
             Now:
             <example_rtl>
-                1 module test;
-                2   logic a;
-                4 endmodule
+                always @(posedge clk) begin
+                    if (a && b) begin
+                        out <= 1;  // This line is now always reachable
+                    end
+                end
             </example_rtl>
         """
         old_file_content = self.read_rtl().expandtabs(4)
@@ -253,31 +258,32 @@ class RTLEditor:
         new_content = new_content.expandtabs(4)
 
         # Check if old_str is unique in the file
-        logger.info(f"Old File Content:")
-        logger.info(old_file_content)
-        logger.info(f"Target old Content:")
-        logger.info(old_content)
-        logger.info(f"Target new Content:")
-        logger.info(new_content)
+        logger.info(f"Old File Content:\n{old_file_content}")
+        logger.info(f"Target old Content:\n{old_content}")
+        logger.info(f"Target new Content:\n{new_content}")
+
         occurrences = old_file_content.count(old_content)
         if occurrences == 0:
             return {
                 "is_action_executed": False,
                 "new_content": "",
-                "error_msg": f"Cannot find old_content in current RTL. replace_content_by_matching not executed.",
+                "coverage": 0.0,
+                "error_msg": f"Cannot find old_content in current RTL. remove_content_redundancy not executed.",
             }
-        elif occurrences > 1:
-            return {
-                "is_action_executed": False,
-                "new_content": "",
-                "error_msg": f"Find multiple old_content in current RTL. replace_content_by_matching not executed.",
-            }
+        # elif occurrences > 1:
+        #     return {
+        #         "is_action_executed": False,
+        #         "new_content": "",
+        #         "coverage": 0.0,
+        #         "error_msg": f"Find multiple old_content in current RTL. remove_content_redundancy not executed.",
+        #     }
+        # whether need to check if new_content is unique in the file
 
         # Replace old_str with new_str
         new_file_content = old_file_content.replace(old_content, new_content)
         self.write_rtl(new_file_content)
         ret = self.judge_replace_action_execution(
-            old_content, new_content, "replace_content_by_matching", old_file_content
+            old_content, new_content, "remove_content_redundancy", old_file_content
         )
         # ret["new_file_content"] = new_file_content
         return ret
@@ -297,18 +303,23 @@ class RTLEditor:
         )
 
     def get_init_prompt_messages(self) -> List[ChatMessage]:
-        actions = [self.replace_content_by_matching]
+        actions = [self.remove_content_redundancy]
         actions_prompt = SYSTEM_PROMPT.format(
             actions="".join([self.gen_action_prompt(action) for action in actions])
         )
         system_prompt = ChatMessage(content=actions_prompt, role=MessageRole.SYSTEM)
+
         with open(self.tb_path, "r") as f:
-            generated_tb = f.read()
+            testbench = f.read()
+
+        with open(self.rtl_path, "r") as f:
+            rtl_code = f.read()
+
         edit_init_prompt = ChatMessage(
             content=INIT_EDITION_PROMPT.format(
-                input_spec=self.spec,
-                generated_tb=generated_tb,
-                sim_failed_log=self.sim_failed_log,
+                testbench=testbench,
+                coverage_report=self.coverage_report,
+                rtl_code=rtl_code,
             ),
             role=MessageRole.USER,
         )
@@ -365,8 +376,9 @@ class RTLEditor:
         self,
         spec: str,
         output_dir_per_run: str,
-        sim_failed_log: str,
-        sim_mismatch_cnt: int,
+        rtl_code: str,
+        testbench: str,
+        coverage_report: str,
     ) -> Tuple[bool, str]:
         # 1. Initialize the history
         # 2. Generate the initial prompt messages (with functool information)
@@ -383,9 +395,30 @@ class RTLEditor:
         self.output_dir_per_run = output_dir_per_run
         self.tb_path = f"{output_dir_per_run}/tb.sv"
         self.rtl_path = f"{output_dir_per_run}/rtl.sv"
-        self.sim_failed_log = sim_failed_log
-        self.last_mismatch_cnt = sim_mismatch_cnt
+        self.coverage_report = coverage_report
 
+        # Write initial files
+        with open(self.rtl_path, "w") as f:
+            f.write(rtl_code)
+        with open(self.tb_path, "w") as f:
+            f.write(testbench)
+
+        # Get initial coverage
+        initial_check = self.replace_sanity_check()
+        self.last_coverage = initial_check["coverage"]
+        logger.info(f"Initial line coverage: {self.last_coverage}%")
+
+        if self.last_coverage == 100.0:
+            logger.info("Initial coverage is 100%. No need to edit.")
+            return (True, rtl_code)
+        if not initial_check["is_syntax_pass"]:
+            logger.info("Syntax check failed. No need to edit.")
+            return (False, rtl_code)
+        if not initial_check["is_sim_pass"]:
+            logger.info("Simulation check failed. No need to edit.")
+            return (False, rtl_code)
+
+        # Start the editing process
         self.history.extend(self.get_init_prompt_messages())
         is_pass = False
         succeed_history: List[ChatMessage] = []
@@ -401,12 +434,16 @@ class RTLEditor:
             new_contents = [response.message]
             action_input = self.parse_output(response).action_input
             action_output = self.run_action(action_input)
-            if self.is_done:
+            if self.is_done:  # Reached 100% coverage while maintaining functionality
                 is_pass = True
                 break
             new_contents.extend(self.get_action_output_message(action_output))
             assert len(new_contents) == 2, f"new_contents: {new_contents}"
+
             if action_output["is_action_executed"]:
+                logger.info(
+                    f"Coverage improved to: {action_output.get('coverage', 0.0)}%"
+                )
                 fail_history = []
                 succeed_history.extend(new_contents)
                 if len(succeed_history) > self.succeed_history_max_length:
@@ -419,5 +456,5 @@ class RTLEditor:
                     fail_history = fail_history[-self.fail_history_max_length :]
 
         with open(self.rtl_path, "r") as f:
-            rtl_code = f.read()
-        return (is_pass, rtl_code)
+            final_rtl_code = f.read()
+        return (is_pass, final_rtl_code)

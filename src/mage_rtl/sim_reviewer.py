@@ -79,6 +79,17 @@ def sim_review(
     return is_pass, mismatch_cnt, sim_output
 
 
+def sim_coverage_review(
+    output_path_per_run: str,
+    golden_rtl_path: str | None = None,
+) -> Tuple[bool, float, str]:
+    # TODO: Implement coverage review
+    is_pass = False
+    coverage = 0.0
+    sim_output = ""
+    return is_pass, coverage, sim_output
+
+
 class SimReviewer:
     def __init__(
         self,
@@ -97,6 +108,19 @@ class SimReviewer:
         - sim_log: str
         """
         return sim_review(
+            self.output_path_per_run,
+            self.golden_rtl_path,
+        )
+
+    def coverage_review(self) -> Tuple[bool, float, str]:
+        """
+        Review the simulation results for current rtl.sv and tb.sv
+        Returns:
+        - is_pass: bool
+        - coverage: float
+        - sim_log: str
+        """
+        return sim_coverage_review(
             self.output_path_per_run,
             self.golden_rtl_path,
         )
