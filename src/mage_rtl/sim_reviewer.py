@@ -167,11 +167,11 @@ class SimReviewer:
 
     def coverage_review(self) -> Tuple[bool, float, str]:
         """
-        Review the simulation results for current rtl.sv and tb.sv
+        Review the simulation results and line coverage for current rtl.sv and tb.sv
         Returns:
-        - is_pass: bool
-        - coverage: float
-        - sim_log: str
+        - is_pass: bool - whether simulation passes
+        - coverage: float - line coverage percentage (0.0 to 100.0)
+        - sim_log: str - simulation and coverage output
         """
         return sim_coverage_review(
             self.output_path_per_run,
