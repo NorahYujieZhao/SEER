@@ -151,7 +151,7 @@ class RTLCoverageEditor:
                 "error_msg": syntax_output,
                 "coverage": 0.0,
             }
-        is_sim_pass, coverage, sim_output = self.sim_reviewer.review_with_coverage()
+        is_sim_pass, coverage, sim_output = self.sim_reviewer.coverage_review()
         assert isinstance(coverage, float)
         return {
             "is_syntax_pass": True,

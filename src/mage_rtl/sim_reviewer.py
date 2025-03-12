@@ -83,10 +83,63 @@ def sim_coverage_review(
     output_path_per_run: str,
     golden_rtl_path: str | None = None,
 ) -> Tuple[bool, float, str]:
-    # TODO: Implement coverage review
-    is_pass = False
+    """
+    Review the simulation results and line coverage for current rtl.sv and tb.sv
+    Returns:
+    - is_pass: bool - whether simulation passes
+    - coverage: float - line coverage percentage (0.0 to 100.0)
+    - sim_output: str - simulation and coverage output
+    """
+    rtl_path = f"{output_path_per_run}/rtl.sv"
+    vvp_name = f"{output_path_per_run}/sim_output.vvp"
+    tb_path = f"{output_path_per_run}/tb.sv"
+    coverage_db = f"{output_path_per_run}/coverage.db"
+
+    if os.path.isfile(vvp_name):
+        os.remove(vvp_name)
+    if os.path.isfile(coverage_db):
+        os.remove(coverage_db)
+
+    # Compile with coverage
+    cmd = f"iverilog -Wall -Winfloop -Wno-timescale -g2012 -o {vvp_name} -c {coverage_db} {tb_path} {rtl_path}"
+    if golden_rtl_path:
+        cmd += f" {golden_rtl_path}"
+
+    # Run simulation with coverage
+    cmd += f"; vvp -n -c {coverage_db} {vvp_name}"
+
+    # Get coverage report
+    cmd += f"; covered report -m line {coverage_db}"
+
+    is_pass, sim_output = run_bash_command(cmd, timeout=60)
+    sim_output_obj = CommandResult.model_validate_json(sim_output)
+
+    # Check simulation pass/fail
+    is_pass = (
+        is_pass
+        and "SIMULATION PASSED" in sim_output_obj.stdout
+        and (
+            sim_output_obj.stderr == ""
+            or stderr_all_lines_benign(sim_output_obj.stderr)
+        )
+    )
+
+    # Parse line coverage from output
     coverage = 0.0
-    sim_output = ""
+    if is_pass:
+        try:
+            # Extract line coverage percentage from covered report output
+            coverage_pattern = r"Line Coverage:\s*(\d+\.\d+)%"
+            match = re.search(coverage_pattern, sim_output_obj.stdout)
+            if match:
+                coverage = float(match.group(1))
+        except Exception as e:
+            logger.error(f"Failed to parse coverage: {e}")
+
+    logger.info(
+        f"Coverage simulation is_pass: {is_pass}, line coverage: {coverage}%\noutput: {sim_output}"
+    )
+
     return is_pass, coverage, sim_output
 
 
