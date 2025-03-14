@@ -1,16 +1,13 @@
-from typing import List
-
-from llama_index.core.base.llms.types import ChatMessage, MessageRole, ChatResponse
-from mage.gen_config import get_llm
-from mage.log_utils import get_logger, set_log_dir, switch_log_to_file
-from mage.token_counter import TokenCounter, TokenCounterCached
-
-from datetime import datetime
-import argparse
 import json
-import os
-import re
-from mage.gen_config import Config
+from typing import Dict, List
+
+import python_call as py
+from llama_index.core.base.llms.types import ChatMessage, ChatResponse, MessageRole
+from mage.gen_config import get_llm
+from mage.log_utils import get_logger
+from mage.prompts import ORDER_PROMPT
+from mage.token_counter import TokenCounter, TokenCounterCached
+from pydantic import BaseModel
 
 logger = get_logger(__name__)
 
@@ -19,152 +16,210 @@ You are an expert in RTL design. You can always write SystemVerilog code with no
 """
 
 GENERATION_PROMPT = """
-Your task is to write a verilog testbench for an verilog RTL module code (we call it as "DUT", device under test). 
-The information we have is the problem description that guides student to write the RTL code (DUT) and the header of the "DUT". 
-Our target is to generate the verilog testbench for the DUT. This testbench can check if the DUT in verilog satisfies all technical requirements of the problem description.
-The infomation we have is 
-- 1. the problem description that guides student to write the RTL code (DUT) and the header of the "DUT". 
-- 2. the module header.
-- 3. the testbench structure
-- 4. the instruction of writing our testbench
+Your task is to generate Python code to produce JSON-formatted stimulus sequences for testing a given DUT (Device Under Test), based on specific testbench scenarios. The information you have is:
 
-The testbench does not need to check the DUT's output but only export the signals of DUT. Please export the signals of DUT to a file named "TBout.txt" at the end of each scenario. You need to use $fopen, $fdisplay, $fclose to export the signals. The exported data will be send to a python script to check the correctness of DUT.
+1. The problem description that guides student to write the RTL code (DUT)
+2. The header of the "DUT"
+3. The instruction for writing the testbench
+4. The testbench scenarios description
 
-The variables are already declared. The clock signal is already prepared. This output will be used to check the correctness of the DUT's output later.
+The stimulus sequence format should strictly follow the JSON structure below:
+{
+  "scenario": "scenario_name",
+  "input variable": [
+    {"variable_name": variable_value},
+    {"variable_name": variable_value},
+    {"variable_name": variable_value}
+  ]
+}
+Each input variable sequence should be customized based on the given specific scenario description, typically including:
 
-the signals you save is the input and output of DUT, you should determine the signals according to DUT's header. Please determine the input signal's exact values. 
-Note: please complete the last initial code part (marked in the given testbench template). You should give me the completed full code. The testbench template above is to help you generate the code. You must use %%d when exporting values.
-please generate the full testbench code. please only reply verilog codes, no other words.
+a. Typical operationsb. Edge cases and corner casesc. Boundary conditionsd. Error handlinge. Valid and invalid inputsf. Timing verification requirements
 
-When running testbench, for one time point, you should export 1 line.
-There could be multiple $fdisplay statements under one scenario, which means multiple test stimuli in one scenario.
 
-Very important:
-you should consider the rules of an ideal DUT to generate expected values in each test scenario.
 
-Attention: before $fdisplay, you should always have a delay statement to make sure the signals are stable.
 
-here is the header and description of the DUT:
-<description>
+
+Please follow these steps:
+
+1. First, analyze the given test scenarios:
+
+
+2. Finally, implement the testbench scenarios that:
+    - The structure of Test scenarios JSON format: the key are scenario number, if check, the input variable names from the DUT header.
+   - Adds key 'check_en'  for verification points
+   - Uses repeat loops for sequential tests
+
+Here is the information you have:
+1. <description>
 {description}
 </description>
 
-You should write the testbench following the format of example below.
+2. <module_header>
+{module_header}
+</module_header>
+
+3. <instruction>
+{instruction}
+</instruction>
+
+4. <testbench_scenarios>
+{testbench_scenarios}
+</testbench_scenarios>
+
+Please generate the testbench following the format in the example below:
 <example>
 {example}
 </example>
 """
 
-EXTRA_PROMPT = """
-Your response will be processed by a program, not human.
-So, please provide the full testbench code only.
-DO NOT include any other information in your response, like 'json', 'reasoning' or '<output_format>'.
+Instructions_for_Python_Code = """
+Instructions for the Python Code:
+
+1. Input Variable Conformance: Ensure all input variables in the stimulus sequence strictly conform to the DUT module header definition (variable names, bit widths, data types). Clearly indicate variable types (binary, integer, etc.) and bit widths according to the DUT module header.
+
+2. Special Verilog Values Handling:
+
+Include scenarios explicitly testing special Verilog values such as 'x' (unknown) and 'z' (high impedance).
+
+Ensure your Python code can represent these special states accurately in the JSON output.
+
+3. Code Clarity and Maintainability:
+
+Clearly document each step and scenario in comments.
+
+Structure the code logically (use functions for clarity).
+
+Consider edge cases involving timing and synchronization relevant to the RTL module's operation.
+
+4. Specific Recommendations for stimulus_gen Module:
+
+Leverage Python loops (for, while) to efficiently generate repetitive or sequential test inputs.
+
+Use parameterized functions or loops to cover various input ranges and boundary conditions systematically.
+
+Ensure scalability by avoiding hard-coded scenarios; instead, use loop-driven generation for comprehensive coverage.
+
 """
 
 EXTRA_PROMPT_SEQ = """
-Note: This circuit is a sequential circuit.
-please only use "#10" as the delay when you need. If you need longer delay, you can use multiple "#10", such as "#10; #10; #10;". Avoid meaningless long delay in your code.
-If you need a loop in a scenario to check multiple time points, use "repeat" loop. for exmaple:
-```
-// scenario x
-scenario = x;
-signal_1 = 1;
-repeat(5) begin
-    $fdisplay(file, "scenario: %d, clk = %d, signal_1 = %d", scenario, clk, signal_1);
-    #10;
-end
 
-Note: You need to add a [check] tag in the $fdisplay statement in the last time point of each scenario. This tag is used to check the correctness of the DUT's output.
-For example:
-$fdisplay(file, "[check]scenario: %d, clk = %d, load = %d, ena = %d, amount = %d, data = %d, q = %d", scenario, clk, load, ena, amount, data, q);
 """
 
-EXAMPLE_OUTPUT = """
-`timescale 1ns / 1ps
-module testbench;
-reg  clk;
-reg  load;
-reg  ena;
-reg [1:0] amount;
-reg [63:0] data;
-wire [63:0] q;
+EXAMPLE_OUTPUT = {
+    "reasoning": "Analyze the scenario description and think how to generate the stimulus sequence",
+    "stimulus_gen_code": "python code to generate stimulus sequence",
+}
+ONE_SHOT_EXAMPLE = """
+Here are some examples of SystemVerilog testbench code:
+Example 1:
+<example>
+    <input_spec>
+        Rule 110 is a one-dimensional cellular automaton with interesting properties (such as being Turing-complete). There is a one-dimensional array of cells (on or off). At each time step, the state of each cell changes. In Rule 110, the next state of each cell depends only on itself and its two neighbours, according to the following table:\n// Left | Center | Right | Center's next state\n// 1 | 1 | 1 | 0\n// 1 | 1 | 0 | 1\n// 1 | 0 | 1 | 1\n// 1 | 0 | 0 | 0\n// 0 | 1 | 1 | 1\n// 0 | 1 | 0 | 1\n// 0 | 0 | 1 | 1\n// 0 | 0 | 0 | 0 \n// In this circuit, create a 512-cell system (q[511:0]), and advance by one time step each clock cycle. The synchronous active high load input indicates the state of the system should be loaded with data[511:0]. Assume the boundaries (q[-1] and q[512]) are both zero (off).
+    </input_spec>
 
-integer file, scenario;
-// DUT instantiation
-top_module DUT (
-    .clk(clk),
-    .load(load),
-    .ena(ena),
-    .amount(amount),
-    .data(data),
-    .q(q)
-);
-// Clock generation
-initial begin
-    clk = 0;
-    forever #5 clk = ~clk;
-end
+    <stimulus_gen_code>
+    import json
+    import random
 
-initial begin
-    file = $fopen("TBout.txt", "w");
-end
-// Scenario Based Test
-initial begin
-    // scenario 1
-    scenario = 1;
-    load = 1;
-    ena = 0;
-    amount = 2'b00;
-    data = 64'hAAAAAAAAAAAAAAAA;
-    $fdisplay(file, "scenario: %d, clk = %d, load = %d, ena = %d, amount = %d, data = %d, q = %d", scenario, clk, load, ena, amount, data, q);
-    #10; // Cycle 1
-    $fdisplay(file, "[check]scenario: %d, clk = %d, load = %d, ena = %d, amount = %d, data = %d, q = %d", scenario, clk, load, ena, amount, data, q); #10; 
+def generate_stimulus():
+    scenario = "Example Stimulus"
+    stimulus = []
 
-    // scenario 2
-    scenario = 2;
-    load = 0;
-    ena = 1;
-    $fdisplay(file, "scenario: %d, clk = %d, load = %d, ena = %d, amount = %d, data = %d, q = %d", scenario, clk, load, ena, amount, data, q); #10; 
-    amount = 2'b00;
-    $fdisplay(file, "scenario: %d, clk = %d, load = %d, ena = %d, amount = %d, data = %d, q = %d", scenario, clk, load, ena, amount, data, q);
-    #10; // Cycle 2
-    $fdisplay(file, "[check]scenario: %d, clk = %d, load = %d, ena = %d, amount = %d, data = %d, q = %d", scenario, clk, load, ena, amount, data, q); #10; 
+    def repeat_steps(load_val, data_val, count):
+        for _ in range(count):
+            stimulus.append({"load": load_val, "data": data_val})
 
-    // scenario 3
-    scenario = 3;
-    amount = 2'b01;
-    $fdisplay(file, "scenario: %d, clk = %d, load = %d, ena = %d, amount = %d, data = %d, q = %d", scenario, clk, load, ena, amount, data, q);
-    #10; // Cycle 3
-    $fdisplay(file, "[check]scenario: %d, clk = %d, load = %d, ena = %d, amount = %d, data = %d, q = %d", scenario, clk, load, ena, amount, data, q); #10; 
+    # Step 1: data = 0 with bit 0 set -> data = 1, load = 1 for 3 clock cycles
+    data_val = 1
+    load_val = 1
+    repeat_steps(load_val, data_val, 3)
 
-    // scenario 4
-    scenario = 4;
-    amount = 2'b10;
-    $fdisplay(file, "scenario: %d, clk = %d, load = %d, ena = %d, amount = %d, data = %d, q = %d", scenario, clk, load, ena, amount, data, q);
-    #10; // Cycle 4
-    $fdisplay(file, "[check]scenario: %d, clk = %d, load = %d, ena = %d, amount = %d, data = %d, q = %d", scenario, clk, load, ena, amount, data, q); #10; 
+    # Then load = 0 for 10 cycles
+    load_val = 0
+    repeat_steps(load_val, data_val, 10)
 
-    // scenario 5
-    scenario = 5;
-    amount = 2'b11;
-    $fdisplay(file, "scenario: %d, clk = %d, load = %d, ena = %d, amount = %d, data = %d, q = %d", scenario, clk, load, ena, amount, data, q);
-    #10; // Cycle 5
-    $fdisplay(file, "[check]scenario: %d, clk = %d, load = %d, ena = %d, amount = %d, data = %d, q = %d", scenario, clk, load, ena, amount, data, q); #10; 
+    # Step 2: data = 0 with bit 256 set -> data = (1 << 256), load = 1 for 3 cycles
+    data_val = 1 << 256
+    load_val = 1
+    repeat_steps(load_val, data_val, 3)
 
-    $fclose(file);
-    $finish;
-end
+    # Then load = 0 for 1000 cycles
+    load_val = 0
+    repeat_steps(load_val, data_val, 1000)
 
-endmodule
+    # Step 3: data = 0x4df, load = 1 for 1 cycle
+    data_val = 0x4df
+    load_val = 1
+    repeat_steps(load_val, data_val, 1)
+
+    # Then load = 0 for 1000 cycles
+    load_val = 0
+    repeat_steps(load_val, data_val, 1000)
+
+    # Step 4: data = random (simulating $random), load = 1 for 1 cycle
+    data_val = random.getrandbits(32)  # or getrandbits(512) if needed
+    load_val = 1
+    repeat_steps(load_val, data_val, 1)
+
+    # Then load = 0 for 1000 cycles
+    load_val = 0
+    repeat_steps(load_val, data_val, 1000)
+
+    # Step 5: data = 0, load = 1 for 20 cycles
+    data_val = 0
+    load_val = 1
+    repeat_steps(load_val, data_val, 20)
+
+    # Next cycle -> data = 2
+    data_val = 2
+    repeat_steps(load_val, data_val, 1)
+
+    # Next cycle -> data = 4
+    data_val = 4
+    repeat_steps(load_val, data_val, 1)
+
+    # Next cycle -> data = 9, load = 0
+    data_val = 9
+    load_val = 0
+    repeat_steps(load_val, data_val, 1)
+
+    # Next cycle -> data = 12
+    data_val = 12
+    repeat_steps(load_val, data_val, 1)
+
+    # Finally repeat 100 cycles
+    repeat_steps(load_val, data_val, 100)
+
+    # Build the final JSON structure
+    return json.dumps({
+        "scenario": scenario,
+        "input variable": stimulus
+    }, indent=4)
+
+
+if __name__ == "__main__":
+    result = generate_stimulus()
+    with open("stimulus.json", "w") as f:
+        f.write(result)
+</stimulus_gen_code>
+</example>
 """
 
-class tb_genarator:
+
+class TBOutputFormat(BaseModel):
+    reasoning: str
+    stimulus_gen_code: str
+
+
+class TB_Generator:
     def __init__(
         self,
         model: str,
         max_token: int,
         provider: str,
         cfg_path: str,
+        tb_path: str,
     ):
         self.model = model
         self.llm = get_llm(
@@ -175,6 +230,18 @@ class tb_genarator:
             if TokenCounterCached.is_cache_enabled(self.llm)
             else TokenCounter(self.llm)
         )
+        self.tb_path = tb_path
+
+    def parse_output(self, response: ChatResponse) -> TBOutputFormat:
+        try:
+            output_json_obj: Dict = json.loads(response.message.content, strict=False)
+            ret = TBOutputFormat(
+                reasoning=output_json_obj["reasoning"],
+                stimulus_gen_code=output_json_obj["stimulus_gen_code"],
+            )
+            return ret
+        except json.decoder.JSONDecodeError:
+            return TBOutputFormat(reasoning="", stimulus_gen_code="")
 
     def generate(self, messages: List[ChatMessage]) -> ChatResponse:
         logger.info(f" input message: {messages}")
@@ -182,81 +249,45 @@ class tb_genarator:
         logger.info(f"Token count: {token_cnt}")
         logger.info(f"{resp.message.content}")
         return resp
-    
-    def run(self, input_spec: str, circuit_type: str = "SEQ") -> str:
+
+    def run(
+        self,
+        input_spec: str,
+        header: str,
+        tb_scenario_description: str,
+        circuit_type: str = "SEQ",
+    ) -> str:
         msg = [
             ChatMessage(content=SYSTEM_PROMPT, role=MessageRole.SYSTEM),
             ChatMessage(
                 content=GENERATION_PROMPT.format(
-                    description=input_spec, example=EXAMPLE_OUTPUT
+                    description=input_spec,
+                    module_header=header,
+                    example=ONE_SHOT_EXAMPLE,
+                    instruction=Instructions_for_Python_Code,
+                    testbench_scenarios=tb_scenario_description,
                 ),
-                role=MessageRole.USER,
-            ),
-            ChatMessage(
-                content=EXTRA_PROMPT,
                 role=MessageRole.USER,
             ),
         ]
         if circuit_type == "SEQ":
             msg.append(ChatMessage(content=EXTRA_PROMPT_SEQ, role=MessageRole.USER))
+        msg.append(
+            ChatMessage(
+                content=ORDER_PROMPT.format(
+                    output_format="".join(json.dumps(EXAMPLE_OUTPUT, indent=4))
+                ),
+                role=MessageRole.USER,
+            )
+        )
 
         response = self.generate(msg)
-        self.token_counter.log_token_stats()
+        stimulus_py_code = self.parse_output(response).stimulus_gen_code
+        stimulus_json = py.python_call_and_save(stimulus_py_code, silent=True)
+
+        with open(self.tb_path, "w") as f:
+            f.write(stimulus_py_code)
 
         logger.info(f"Get response from {self.model}: {response}")
 
-        return response.message.content
-
-
-if __name__ == "__main__":
-    args_dict = {
-        "temperature": 0,
-        "top_p": 1,
-        "model": "claude-3-7-sonnet@20250219",
-        "provider": "vertexanthropic",
-        "provider_fixer": "vertexanthropic",
-        "filter_instance": "Prob131|Prob134|Prob135",
-        "folder_path": "../verilog-eval/dataset_spec-to-rtl",
-        "run_identifier": "gentb_test",
-        "key_cfg_path": "../key.cfg",
-    }
-
-    args = argparse.Namespace(**args_dict)
-    Config(args.key_cfg_path)
-    switch_log_to_file()
-
-    tb_genarator = tb_genarator(
-        model=args.model,
-        max_token=8192,
-        provider=args.provider,
-        cfg_path=args.key_cfg_path,
-    )
-
-    timestamp = datetime.now().strftime("%Y%m%d")
-    output_dir = f"output_ambiguous_{args.run_identifier}_{timestamp}"
-    log_dir = f"log_ambiguous_{args.run_identifier}_{timestamp}"
-    os.makedirs(output_dir, exist_ok=True)
-    os.makedirs(log_dir, exist_ok=True)
-
-    count = 0
-
-    for root, _dirs, files in os.walk(args.folder_path):
-        for file in files:
-            if re.match(f"({args.filter_instance}).*_prompt\\.txt$", file):
-                count += 1
-                print(f"Processing problem {count}: {file}")
-                task_id = file.replace("_prompt.txt", "")
-                output_dir_per_task = f"{output_dir}/{task_id}"
-                log_dir_per_task = f"{log_dir}/{task_id}"
-                os.makedirs(output_dir_per_task, exist_ok=True)
-                os.makedirs(log_dir_per_task, exist_ok=True)
-                set_log_dir(log_dir_per_task)
-
-                file_path = os.path.join(root, file)
-                with open(file_path, "r") as f:
-                    input_spec = f.read()
-
-                output_tb = tb_genarator.run(input_spec)
-                output_file_path = os.path.join(output_dir_per_task, f"{task_id}_tb.v")
-                with open(output_file_path, "w") as f:
-                    f.write(output_tb)
+        return stimulus_json

@@ -90,7 +90,7 @@ As a reminder, please directly provide the content without adding any extra comm
 """
 
 
-class circuit_type_classifier:
+class CircuitTypeClassifier:
     def __init__(self, model: str, max_token: int, provider: str, cfg_path: str):
         self.model = model
         self.llm = get_llm(
