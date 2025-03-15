@@ -1,7 +1,6 @@
 import json
 from typing import Dict, List
 
-import python_call as py
 from llama_index.core.base.llms.types import ChatMessage, ChatResponse, MessageRole
 from mage.gen_config import get_llm
 from mage.log_utils import get_logger
@@ -16,39 +15,42 @@ You are an expert in RTL design. You can always write SystemVerilog code with no
 """
 
 GENERATION_PROMPT = """
-Your task is to generate Python code to produce JSON-formatted stimulus sequences for testing a given DUT (Device Under Test), based on specific testbench scenarios. The information you have is:
+Your task is to generate Python method named "stimulus_gen" to produce a list of Dictionary-formatted stimulus sequences for testing a given DUT (Device Under Test). If necessary, write any additional methods that may be called within the load method to organize the code and handle specific sub-tasks. The information you have is:
 
 1. The problem description that guides student to write the RTL code (DUT)
 2. The header of the "DUT"
 3. The instruction for writing the testbench
-4. The testbench scenarios description
+4. The list of testbench scenarios description
 
-The stimulus sequence format should strictly follow the JSON structure below:
-{
-  "scenario": "scenario_name",
+The object of the stimulus list format should strictly follow the dictionary structure below:
+{{
+  "scenario": "scenario_name1",
   "input variable": [
-    {"variable_name": variable_value},
-    {"variable_name": variable_value},
-    {"variable_name": variable_value}
+    {{"variable_name": variable_value}},
+    {{"variable_name": variable_value}},
+    {{"variable_name": variable_value}}
   ]
-}
+}}
+
 Each input variable sequence should be customized based on the given specific scenario description, typically including:
 
-a. Typical operationsb. Edge cases and corner casesc. Boundary conditionsd. Error handlinge. Valid and invalid inputsf. Timing verification requirements
-
-
-
-
+a. Typical operations
+b. Edge cases and corner cases
+c. Boundary conditions
+d. Error handling
+e. Valid and invalid inputs
+f. Timing verification requirements
 
 Please follow these steps:
 
-1. First, analyze the given test scenarios:
+1. First, analyze the given test scenarios description.
+
+2. Generate Python method named "stimulus_gen" follow the instruction:
+<instruction>
+{instruction}
+</instruction>
 
 
-2. Finally, implement the testbench scenarios that:
-    - The structure of Test scenarios JSON format: the key are scenario number, if check, the input variable names from the DUT header.
-   - Adds key 'check_en'  for verification points
-   - Uses repeat loops for sequential tests
 
 Here is the information you have:
 1. <description>
@@ -59,11 +61,9 @@ Here is the information you have:
 {module_header}
 </module_header>
 
-3. <instruction>
-{instruction}
-</instruction>
 
-4. <testbench_scenarios>
+
+3. <testbench_scenarios>
 {testbench_scenarios}
 </testbench_scenarios>
 
@@ -75,7 +75,22 @@ Please generate the testbench following the format in the example below:
 
 Instructions_for_Python_Code = """
 Instructions for the Python Code:
-
+[Most importantly]
+1. Carefully read and interpret each description in the list of testbench scenarios.
+2. Write a Python method named stimulus_gen that returns a list of dictionary-formatted stimulus sequences.
+3. Ensure the length of the generated list matches exactly the number of provided testbench scenarios.
+4. The stimulus_gen method can call and rely on any additional helper methods or sub-methods as needed to generate the stimulus sequences clearly and efficiently.
+5. Clearly define and document any helper methods that you use.
+6. The output should be a list of dictionaries, each dictionary is a stimulus sequence following the format:{{
+  "scenario": "scenario_name1",
+  "input variable": [
+    {{"variable_name": (str)variable_value}},
+    {{"variable_name": (str)variable_value}},
+    {{"variable_name": (str)variable_value}}
+  ]
+}}.
+7. The variable names in the "input variable" should be the input variables in the DUT module header.
+[Some hints]
 1. Input Variable Conformance: Ensure all input variables in the stimulus sequence strictly conform to the DUT module header definition (variable names, bit widths, data types). Clearly indicate variable types (binary, integer, etc.) and bit widths according to the DUT module header.
 
 2. Special Verilog Values Handling:
@@ -100,12 +115,19 @@ Use parameterized functions or loops to cover various input ranges and boundary 
 
 Ensure scalability by avoiding hard-coded scenarios; instead, use loop-driven generation for comprehensive coverage.
 
+[Return Value Format]
+The stimulus_gen function should either:
+1. Return a JSON-formatted string directly, or
+2. Return a list/dictionary that can be JSON serialized
+The function's output will be automatically converted to a JSON string before writing to file.
 """
 
 EXTRA_PROMPT_SEQ = """
 
 """
-
+python_code_header = """
+import json
+"""
 EXAMPLE_OUTPUT = {
     "reasoning": "Analyze the scenario description and think how to generate the stimulus sequence",
     "stimulus_gen_code": "python code to generate stimulus sequence",
@@ -122,7 +144,7 @@ Example 1:
     import json
     import random
 
-def generate_stimulus():
+def stimulus_gen():
     scenario = "Example Stimulus"
     stimulus = []
 
@@ -198,12 +220,20 @@ def generate_stimulus():
     }, indent=4)
 
 
-if __name__ == "__main__":
-    result = generate_stimulus()
-    with open("stimulus.json", "w") as f:
-        f.write(result)
 </stimulus_gen_code>
 </example>
+"""
+tail = """
+if __name__ == "__main__":
+    result = stimulus_gen()
+    # 将结果转换为 JSON 字符串
+    if isinstance(result, list):
+        result = json.dumps(result, indent=4)
+    elif not isinstance(result, str):
+        result = json.dumps(result, indent=4)
+
+    with open("stimulus.json", "w") as f:
+        f.write(result)
 """
 
 
@@ -219,7 +249,7 @@ class TB_Generator:
         max_token: int,
         provider: str,
         cfg_path: str,
-        tb_path: str,
+        stimulus_python_path: str,
     ):
         self.model = model
         self.llm = get_llm(
@@ -230,7 +260,8 @@ class TB_Generator:
             if TokenCounterCached.is_cache_enabled(self.llm)
             else TokenCounter(self.llm)
         )
-        self.tb_path = tb_path
+
+        self.stimulus_python_path = stimulus_python_path
 
     def parse_output(self, response: ChatResponse) -> TBOutputFormat:
         try:
@@ -282,12 +313,13 @@ class TB_Generator:
         )
 
         response = self.generate(msg)
-        stimulus_py_code = self.parse_output(response).stimulus_gen_code
-        stimulus_json = py.python_call_and_save(stimulus_py_code, silent=True)
+        # 确保在生成代码前添加必要的导入
+        stimulus_py_code = (
+            "import json\n" + self.parse_output(response).stimulus_gen_code + tail
+        )
 
-        with open(self.tb_path, "w") as f:
+        with open(self.stimulus_python_path, "w") as f:
             f.write(stimulus_py_code)
 
         logger.info(f"Get response from {self.model}: {response}")
-
-        return stimulus_json
+        return stimulus_py_code

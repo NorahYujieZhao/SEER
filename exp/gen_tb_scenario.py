@@ -64,10 +64,12 @@ EXTRA_PROMPT_SEQ = """
 
 EXAMPLE_OUTPUT = {
     "reasoning": "Analyze the technical specification and infer the test scenarios",
-    "testbench_scenarios": {
-        "scenario": "The testbench scenario name",
-        "description": "The description of the testbench scenario",
-    },
+    "testbench_scenarios": [
+        {
+            "scenario": "The testbench scenario name",
+            "description": "The description of the testbench scenario",
+        }
+    ],
 }
 ONE_SHOT_EXAMPLE = """
 Here are some examples of SystemVerilog testbench scenarios descriptions:
@@ -116,9 +118,17 @@ Example 1:
 """
 
 
+class ScenarioItem(BaseModel):
+    scenario: str
+    description: str
+
+
 class TBOutputFormat(BaseModel):
+    class Config:
+        arbitrary_types_allowed = True
+
     reasoning: str
-    testbench_scenarios: json.Dict
+    testbench_scenarios: List[ScenarioItem]
 
 
 class TB_Generator_Scenario:
@@ -128,7 +138,7 @@ class TB_Generator_Scenario:
         max_token: int,
         provider: str,
         cfg_path: str,
-        tb_path: str,
+        tb_scenarios_path: str,
     ):
         self.model = model
         self.llm = get_llm(
@@ -139,17 +149,22 @@ class TB_Generator_Scenario:
             if TokenCounterCached.is_cache_enabled(self.llm)
             else TokenCounter(self.llm)
         )
-        self.tb_path = tb_path
+        self.tb_scenarios_path = tb_scenarios_path
 
     def parse_output(self, response: ChatResponse) -> TBOutputFormat:
         try:
             output_json_obj: Dict = json.loads(response.message.content, strict=False)
+            scenarios = output_json_obj["testbench_scenarios"]
+            if isinstance(scenarios, dict):
+                scenarios = [scenarios]
+            elif not isinstance(scenarios, list):
+                scenarios = []
+
             ret = TBOutputFormat(
-                reasoning=output_json_obj["reasoning"],
-                testbench_scenarios=output_json_obj["testbench_scenarios"],
+                reasoning=output_json_obj["reasoning"], testbench_scenarios=scenarios
             )
         except json.decoder.JSONDecodeError:
-            ret = TBOutputFormat(reasoning="", testbench_scenarios={})
+            ret = TBOutputFormat(reasoning="", testbench_scenarios=[])
         return ret
 
     def generate(self, messages: List[ChatMessage]) -> ChatResponse:
@@ -189,9 +204,17 @@ class TB_Generator_Scenario:
 
         response = self.generate(msg)
         tb_scenarios = self.parse_output(response).testbench_scenarios
-        with open(self.tb_path, "w") as f:
-            f.write(tb_scenarios)
+
+        # 将列表转换为格式化的字符串
+        scenarios_str = ""
+        for scenario in tb_scenarios:
+            scenarios_str += f"scenario: {scenario.scenario}\n"
+            scenarios_str += f"description: {scenario.description}\n\n"
+
+        # 写入文件
+        with open(self.tb_scenarios_path, "w") as f:
+            f.write(scenarios_str)
 
         logger.info(f"Get response from {self.model}: {response}")
 
-        return tb_scenarios
+        return scenarios_str  # 返回字符串而不是列表

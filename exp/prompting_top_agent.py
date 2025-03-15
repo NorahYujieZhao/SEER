@@ -11,8 +11,6 @@ from mage.gen_config import Config
 from mage.log_utils import get_logger, set_log_dir, switch_log_to_file
 from pychecker import PyChecker
 
-from utils.subproc import subproc_call
-
 logger = get_logger(__name__)
 
 
@@ -83,20 +81,21 @@ def main():
         input_spec, header = get_prob_spec(args.folder_path, task_number)
 
         output_results = []
-        tb_path = os.path.join(output_dir_per_task, f"TBout.txt")
+        tb_scenarios_path = os.path.join(output_dir_per_task, f"TB_scenarios.txt")
+        stimulus_python_path = os.path.join(output_dir_per_task, f"stimulus.py")
         tb_generator_scenario = TB_Generator_Scenario(
             model=args.model,
             max_token=8192,
             provider=args.provider,
             cfg_path=args.key_cfg_path,
-            tb_path=tb_path,
+            tb_scenarios_path=tb_scenarios_path,
         )
         tb_genarator = TB_Generator(
             model=args.model,
             max_token=8192,
             provider=args.provider,
             cfg_path=args.key_cfg_path,
-            tb_path=tb_path,
+            stimulus_python_path=stimulus_python_path,
         )
 
         py_checker = PyChecker(
@@ -114,26 +113,43 @@ def main():
         circuit_type_output_json_obj = circuit_type_classifier.run(input_spec)
         circuit_type = circuit_type_output_json_obj["classification"]
 
-        tb_scenario_description = tb_generator_scenario.run(
-            input_spec, header, circuit_type
+        tb_generator_scenario.run(input_spec, header, circuit_type)
+        tb_scenario_description = open(tb_scenarios_path, "r").read()
+        print(f"tb_scenario_description: {tb_scenario_description}")
+        _ = tb_genarator.run(
+            input_spec,
+            header,
+            tb_scenario_description,
+            circuit_type,
         )
-
-        _ = tb_genarator.run(input_spec, header, circuit_type, tb_scenario_description)
+        # subproc_call(f"cd {output_dir_per_task}", timeout=120)
+        stimulus_result = py.python_call_and_save(
+            f"{output_dir_per_task}/stimulus.py", silent=True
+        )
+        print(f"stimulus_result: {stimulus_result}")
 
         for i in range(args.max_trials):
             python_path = os.path.join(output_dir_per_task, f"pychecker_{i}.py")
             print(f"python_path: {python_path}")
             py_checker.run(input_spec, header, python_path, circuit_type)
 
-            subproc_call(f"cd {output_dir_per_task}", timeout=120)
+            # subproc_call(f"cd {output_dir_per_task}", timeout=120)
+            # subproc_call(f"cd {output_dir_per_task}", timeout=120)
             output_results.append(
-                py.python_call_and_save("pychecker_{i}.py", silent=True, timeout=120)
+                py.python_call_and_save(
+                    f"{output_dir_per_task}/pychecker_{i}.py", silent=True, timeout=120
+                )
             )
 
-        output_file_path = os.path.join(output_dir_per_task, f"our_output.txt")
-
-        with open(output_file_path, "w") as output_file:
-            output_file.writelines(output_results)
+        # 将列表中的结果合并为一个字符串
+        try:
+            output_str = "\n".join(str(result) for result in output_results)
+            output_file_path = os.path.join(output_dir_per_task, f"our_output.txt")
+            with open(output_file_path, "w") as output_file:
+                output_file.write(output_str)
+        except Exception as e:
+            logger.error(f"Error writing output file: {e}")
+            logger.error(f"Output results: {output_results}")
 
     # summary.sort()
     # with open(summary_file_path, "a") as summary_file:

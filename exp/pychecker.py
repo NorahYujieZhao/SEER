@@ -11,33 +11,73 @@ from pydantic import BaseModel
 logger = get_logger(__name__)
 
 SYSTEM_PROMPT = """You are an expert in RTL design and Python programming. You can always write correct Python code to verify RTL functionality."""
+GENERATION_PROMPT = """
+Your task is to implement a Python class named "GoldenDUT" representing the ideal (golden) model of the RTL design.
 
-GENERATION_PROMPT = """Your job is to implement a Python class named "GoldenDUT" that represents the ideal (golden) model of the RTL design.
-This class must realize the logic and functionality specified in the provided RTL code spec and module header.
-You are expected to translate RTL constructs into Python methods and attributes that simulate both combinational and sequential logic.
-Ensure that your implementation is structured to facilitate testing and verification against expected simulation outputs.
+You will receive input stimuli formatted explicitly as JSON:
 
-In your GoldenDUT class, please do the following:
+{{
+  "scenario": "scenario_name",
+  "input variable": [
+    {{"variable_name": (string)variable_value}},
+    {{"variable_name": (string)variable_value}},
+    {{"variable_name": (string)variable_value}}
+  ]
+}}
 
-1. Initialization
+And the python code should return the outputs aligned with the RTL module outputs as JSON:
 
-Implement the method def __init__(self).
-In this method, define and initialize all internal state variables (registers). Each internal state should have a suffix _reg.
-Set the initial value of these internal states to "x" (note that later these will be updated to actual digit values).
+{{
+  "scenario": "scenario_name",
+  "output variable": [
+    {{"variable_name": (string)variable_value}},
+    {{"variable_name": (string)variable_value}},
+    {{"variable_name": (string)variable_value}}
+  ]
+}}
+Each scenario contains multiple input variables. Your primary goal is to implement a Python class whose outputs precisely match the functionality and logic described by the provided RTL specification (`spec`) and module header.
 
-2. Signal Loading and State Update
+## Implementation Requirements:
 
-Implement the method def load(self, signal_vector).
-This method takes one parameter, signal_vector, which is always provided in decimal format.
-Each time load is called, it represents a new clock cycle. Use the values from the signal_vector to update the internal state registers accordingly.
-The method should return the expected output values (i.e., the updated internal states).
+### 1. Initialization (__init__ method)
 
-3. Additional Helper Methods
+Implement the following method exactly:
 
-If necessary, write any additional methods that may be called within the load method to organize the code and handle specific sub-tasks.
+def __init__(self):
+    '''
+    Initialize all internal state registers.
+    Each internal register/state variable must align with the module header.
+    Explicitly initialize these states according to the RTL specification.
+    '''
+    pass  # Initialize your state variables here
 
+### 2. Signal Loading and State Updates (load method)
 
-You have the following extra details to help guide your implementation:
+Implement the method exactly as shown:
+
+def load(self, stimulus_dict: Dict[str, any]):
+    '''
+    stimulus_dict: a dictionary formatted as shown above.
+    Parse each input variable and use it to perform RTL state updates.
+    Please note input variable is in string format and you need to convert it to the corresponding type.
+    Returns a dictionary of the outputs aligned with the RTL module outputs and updated states for verification.
+    '''
+    pass  # Implement your signal update logic here
+
+### 3. Helper methods (optional)
+
+You may implement additional helper methods if needed to organize your code clearly.
+
+## Important RTL-to-Python Simulation Considerations:
+
+To accurately replicate RTL behavior in Python, explicitly handle the following:
+
+<instructions>
+{instructions}
+</instructions>
+---
+
+Additional information for your implementation:
 
 <description>
 {description}
@@ -47,53 +87,84 @@ You have the following extra details to help guide your implementation:
 {module_header}
 </module_header>
 
-Notes:
+---
 
-You may use binary (e.g., 0b1101), hexadecimal (e.g., 0x1a), or normal number formats in your Python code, but remember that the input signal vector to GoldenDUT will always be in decimal format.
-Please incorporate the RTL code specification and the module header information as necessary to ensure the logic in GoldenDUT correctly represents the intended behavior.
+Python implementation examples (GoldenDUT):
 
-Here are some examples of python code of GoldenDUT:
 {examples_prompt}
 """
+
+
+instructions = """
+1. **Undefined (X) and High-Impedance (Z) Values:**
+
+    - Python lacks native support for RTL-specific undefined ('X') and high-impedance ('Z') states.
+    - **Recommended Solution:**
+        - Represent `'X'` explicitly with a dedicated sentinel value (e.g., `None`, `'X'`, or a custom enum such as `SignalState.UNDEFINED`).
+        - Represent `'Z'` explicitly as a distinct sentinel value (e.g., `'Z'`, or `SignalState.HIGH_Z`).
+        - Provide helper functions like `is_defined(signal)` or `resolve_state(signal_list)` to manage these special states clearly.
+
+
+These solutions provide clear guidance on accurately modeling RTL behavior in Python simulations, enhancing clarity and maintainability.
+"""
+
 
 EXAMPLE_OUTPUT_FORMAT = {
     "reasoning": "All reasoning steps and advices to generate the python code of the GoldenDUT class",
     "python_code": "The python code of the GoldenDUT class",
 }
+
+PythonHeader = """
+import json
+from typing import Dict, List, Union
+
+    def load(self, stimulus: Dict[str, str]):
+        try:
+
+            if stimulus['x'] in ['x', 'X', 'z', 'Z']:
+                return {'z': stimulus['x']}
+
+
+            x = int(stimulus['x'])
+            y = int(stimulus['y'])
+
+
+            z = (x ^ y) & x
+
+            return {'z': str(z)}
+        except ValueError:
+
+            return {'z': 'x'}
+
+"""
 CHECKER_TAIL = """
-def collect_expected_output(vectors_in):
-    golden_dut = GoldenDUT()
-    expected_outputs = []
-    for vector in vectors_in:
-        q=golden_dut.load(vector)
-        if vector["check_en"]:
-            expected_outputs.append(q)
+def check_output(stimulus_list):
 
-    return expected_outputs
+    dut = GoldenDUT()
+    tb_outputs = []
 
-def SignalTxt_to_dictlist(txt:str):
-    lines = txt.strip().split("\\n")
-    signals = []
-    for line in lines:
-        signal = {}
-        line = line.strip().split(", ")
-        for item in line:
-            if "scenario" in item:
-                item = item.split(": ")
-                signal["scenario"] = item[1]
-            else:
-                item = item.split(" = ")
-                key = item[0]
-                value = item[1]
 
-        signals.append(signal)
-    return signals
+    for stimulus in stimulus_list:
+        tb_outputs.append(dut.load(stimulus))
 
-with open("TBout.txt", "r") as f:
-    txt = f.read()
-vectors_in = SignalTxt_to_dictlist(txt)
-tb_outputs = collect_expected_output(vectors_in)
-print(tb_outputs)
+    return tb_outputs
+
+if __name__ == "__main__":
+
+    with open("stimulus.json", "r") as f:
+        stimulus_data = json.load(f)
+
+
+    if isinstance(stimulus_data, dict):
+        stimulus_list = stimulus_data.get("input variable", [])
+    else:
+        stimulus_list = stimulus_data
+
+
+    outputs = check_output(stimulus_list)
+
+
+    print(json.dumps(outputs, indent=2))
 """
 
 ONE_SHOT_EXAMPLES = r"""
@@ -106,38 +177,49 @@ Example 1:
 
 
     </input_spec>
+    <module_header>
+    module top_module(\n\tinput clk,\n\tinput load,\n\tinput ena,\n\tinput [1:0] amount,\n\tinput [63:0] data,\n\toutput reg [63:0] q);
+    </module_header>
     <python_code>
     class GoldenDUT:
         def __init__(self):
             # Initialize internal state register
             self.q_reg = 0
 
-        def load(self, signal_vector):
-            # Load the input signals and update the internal state
-            load = signal_vector['load']
-            ena = signal_vector['ena']
-            data = signal_vector['data']
-            amount = signal_vector['amount']
-            current_q = self.q_reg
+        def load(self, stimulus_dict: Dict[str, Any]):
+            stimulus_outputs = []
+            for stimulus in stimulus_dict['input variable']:
+                # Load the input signals and update the internal state
+                load = stimulus['load']
+                ena = stimulus['ena']
+                data = stimulus['data']
+                amount = stimulus['amount']
+                current_q = self.q_reg
 
-            if load:
-                # Load data into the shift register
-                self.q_reg = data & 0xFFFFFFFFFFFFFFFF  # Ensure 64-bit width
-            elif ena:
-                if amount == 0b00:
-                    # Shift left by 1
-                    self.q_reg = (current_q << 1) & 0xFFFFFFFFFFFFFFFF
-                elif amount == 0b01:
-                    # Shift left by 8
-                    self.q_reg = (current_q << 8) & 0xFFFFFFFFFFFFFFFF
-                elif amount == 0b10:
-                    # Arithmetic shift right by 1
-                    self.q_reg = (current_q >> 1) | ((current_q & 0x8000000000000000) >> 1)
-                elif amount == 0b11:
-                    # Arithmetic shift right by 8
-                    self.q_reg = (current_q >> 8) | ((current_q & 0x8000000000000000) >> 8)
+                if load:
+                    # Load data into the shift register
+                    self.q_reg = data & 0xFFFFFFFFFFFFFFFF  # Ensure 64-bit width
+                elif ena:
+                    if amount == 0b00:
+                        # Shift left by 1
+                        self.q_reg = (current_q << 1) & 0xFFFFFFFFFFFFFFFF
+                    elif amount == 0b01:
+                        # Shift left by 8
+                        self.q_reg = (current_q << 8) & 0xFFFFFFFFFFFFFFFF
+                    elif amount == 0b10:
+                        # Arithmetic shift right by 1
+                        self.q_reg = (current_q >> 1) | ((current_q & 0x8000000000000000) >> 1)
+                    elif amount == 0b11:
+                        # Arithmetic shift right by 8
+                        self.q_reg = (current_q >> 8) | ((current_q & 0x8000000000000000) >> 8)
+                stimulus_outputs.append(self.q_reg)
+            output_dict = {
+                "scenario": stimulus_dict['scenario'],
+                "output variable": stimulus_outputs,
 
-            return self.q_reg
+            }
+
+            return output_dict
     </python_code>
 </example>
 
@@ -197,6 +279,7 @@ class PyChecker:
         prompt = GENERATION_PROMPT.format(
             description=problem_description,
             module_header=header,
+            instructions=instructions,
             examples_prompt=ONE_SHOT_EXAMPLES,
         )
 
@@ -212,7 +295,9 @@ class PyChecker:
         ]
 
         response, token_cnt = self.token_counter.count_chat(messages)
-        py_output = self.parse_output(response).python_code + CHECKER_TAIL
+        py_output = (
+            PythonHeader + "\n" + self.parse_output(response).python_code + CHECKER_TAIL
+        )
 
         logger.info(f"Token count: {token_cnt}")
         logger.info(f"Response: {response.message.content}")
