@@ -1,0 +1,23 @@
+scenario: Initial Reset Verification
+description: Assert asynchronous reset (areset=1) and verify output goes to OFF state (out=0) immediately regardless of other inputs
+
+scenario: OFF to ON Transition
+description: From OFF state, assert j=1 and verify transition to ON state (out=1) on next clock edge while k input varies
+
+scenario: ON to OFF Transition
+description: From ON state, assert k=1 and verify transition to OFF state (out=0) on next clock edge while j input varies
+
+scenario: State Retention OFF
+description: In OFF state with j=0, verify state remains OFF (out=0) across multiple clock cycles regardless of k input
+
+scenario: State Retention ON
+description: In ON state with k=0, verify state remains ON (out=1) across multiple clock cycles regardless of j input
+
+scenario: Reset During Operation
+description: Assert reset while in ON state and verify immediate transition to OFF state regardless of j/k inputs
+
+scenario: Input Toggle Stress
+description: Rapidly toggle j and k inputs to verify correct state transitions under dynamic input conditions
+
+scenario: Invalid Input Handling
+description: Apply undefined (X) or high-impedance (Z) values to j/k inputs and verify stable state machine operation

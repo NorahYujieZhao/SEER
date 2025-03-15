@@ -1,0 +1,67 @@
+`timescale 1ns / 1ps
+module testbench;
+reg x, y;
+wire z;
+integer file, scenario;
+
+// DUT instantiation
+top_module DUT (
+    .x(x),
+    .y(y),
+    .z(z)
+);
+
+initial begin
+    file = $fopen("TBout.txt", "w");
+
+    // Scenario 1: x=0, y=0
+    scenario = 1;
+    x = 0;
+    y = 0;
+    #10;
+    $fdisplay(file, "[check]scenario: %d, x = %d, y = %d, z = %d", scenario, x, y, z);
+
+    // Scenario 2: x=0, y=1
+    scenario = 2;
+    x = 0;
+    y = 1;
+    #10;
+    $fdisplay(file, "[check]scenario: %d, x = %d, y = %d, z = %d", scenario, x, y, z);
+
+    // Scenario 3: x=1, y=0
+    scenario = 3;
+    x = 1;
+    y = 0;
+    #10;
+    $fdisplay(file, "[check]scenario: %d, x = %d, y = %d, z = %d", scenario, x, y, z);
+
+    // Scenario 4: x=1, y=1
+    scenario = 4;
+    x = 1;
+    y = 1;
+    #10;
+    $fdisplay(file, "[check]scenario: %d, x = %d, y = %d, z = %d", scenario, x, y, z);
+
+    // Scenario 5: Quick transitions
+    scenario = 5;
+    repeat(4) begin
+        x = $random;
+        y = $random;
+        #10;
+        $fdisplay(file, "[check]scenario: %d, x = %d, y = %d, z = %d", scenario, x, y, z);
+    end
+
+    // Scenario 6: Stability check
+    scenario = 6;
+    x = 1;
+    y = 1;
+    repeat(3) begin
+        #10;
+        $fdisplay(file, "[check]scenario: %d, x = %d, y = %d, z = %d", scenario, x, y, z);
+    end
+
+    $fclose(file);
+    $finish;
+end
+
+endmodule

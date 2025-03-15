@@ -1,0 +1,20 @@
+scenario: All Input Combinations
+description: Test all possible input combinations (x=0/1, y=0/1) to verify the truth table of the boolean function z = (x^y) & x
+
+scenario: Input Transitions
+description: Test transitions between different input combinations to verify glitch-free output behavior when inputs change
+
+scenario: Invalid Input States
+description: Apply undefined (X) and high-impedance (Z) states to inputs x and y to verify the DUT's handling of invalid inputs
+
+scenario: Setup Time Verification
+description: Verify that input signals x and y meet setup time requirements relative to any timing references
+
+scenario: Hold Time Verification
+description: Verify that input signals x and y meet hold time requirements relative to any timing references
+
+scenario: Simultaneous Input Changes
+description: Test scenarios where both x and y inputs change simultaneously to verify correct output behavior
+
+scenario: Output Stability
+description: Verify that output z remains stable when inputs are stable and only changes when inputs change
