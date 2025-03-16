@@ -100,9 +100,19 @@ instructions = """
 
     - Python lacks native support for RTL-specific undefined ('X') and high-impedance ('Z') states.
     - **Recommended Solution:**
-        - Represent `'X'` explicitly with a dedicated sentinel value (e.g., `None`, `'X'`, or a custom enum such as `SignalState.UNDEFINED`).
-        - Represent `'Z'` explicitly as a distinct sentinel value (e.g., `'Z'`, or `SignalState.HIGH_Z`).
-        - Provide helper functions like `is_defined(signal)` or `resolve_state(signal_list)` to manage these special states clearly.
+        Use BinaryValue for all signal conversions:
+            from cocotb.binary import BinaryValue
+            signal = BinaryValue(value_str)
+        Preserve X/Z states through binstr property.
+        Use BinaryValue.value or BinaryValue.integer or BinaryValue.signed_integer to get the value of the signal.
+
+    Usage Example:
+        def load(self, stimulus_dict: Dict[str, any]):
+            try:
+                x = BinaryValue(stimulus_dict['x'])
+                y = BinaryValue(stimulus_dict['y'])
+                z = BinaryValue(x.integer ^ y.integer & x.integer)
+                return {'z': str(z.integer)}
 
 
 These solutions provide clear guidance on accurately modeling RTL behavior in Python simulations, enhancing clarity and maintainability.
@@ -145,7 +155,10 @@ def check_output(stimulus_list):
 
 
     for stimulus in stimulus_list:
-        tb_outputs.append(dut.load(stimulus))
+        if 'check_en' in stimulus:
+            tb_outputs.append(dut.load(stimulus))
+        else:
+            dut.load(stimulus)
 
     return tb_outputs
 

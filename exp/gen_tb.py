@@ -86,10 +86,11 @@ Instructions for the Python Code:
   "input variable": [
     {{"variable_name": (str)variable_value}},
     {{"variable_name": (str)variable_value}},
-    {{"variable_name": (str)variable_value}}
+    {{"variable_name": (str)variable_value, check_en: True}}
   ]
 }}.
 7. The variable names in the "input variable" should be the input variables in the DUT module header.
+8. At the end each scenario (the last stimulus sequence), you should add an additional check_en key to indicate that the check of the output should be enabled.
 [Some hints]
 1. Input Variable Conformance: Ensure all input variables in the stimulus sequence strictly conform to the DUT module header definition (variable names, bit widths, data types). Clearly indicate variable types (binary, integer, etc.) and bit widths according to the DUT module header.
 

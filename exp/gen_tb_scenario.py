@@ -71,14 +71,16 @@ EXAMPLE_OUTPUT = {
         }
     ],
 }
-ONE_SHOT_EXAMPLE = """
+FEW_SHOT_EXAMPLE = """
 Here are some examples of SystemVerilog testbench scenarios descriptions:
 Example 1:
 <example>
     <input_spec>
-        Implement the SystemVerilog module based on the following description.
-        Assume that sigals are positive clock/clk triggered unless otherwise stated.
-        The module should implement a XOR gate.
+        Implement an 8-bit synchronous up-counter with:
+        - Clock (clk) rising-edge triggered
+        - Active-high asynchronous reset (RST)
+        - Active-high enable (EN)
+        - Output value wraps from 255 to 0 on overflow
     </input_spec>
 
     <testbench_scenarios>
@@ -99,9 +101,9 @@ Example 1:
 "description": "Set counter value to 255, enable counting, and verify it rolls over to 0 on next increment."
 },
 {
-"scenario": "Invalid Inputs Handling",
-"description": "Provide undefined (X or Z) inputs on EN and RST signals and verify DUT behavior remains stable and predictable."
-},
+"scenario": "Power-on Initialization",
+"description": "Verify counter initializes to 0x00 after power-on without explicit reset."
+}
 {
 "scenario": "Timing Requirements Verification",
 "description": "Check setup and hold times of the EN signal relative to the clock and ensure counter increments correctly."
@@ -115,6 +117,86 @@ Example 1:
     </testbench_scenarios>
 </example>
 
+Example 2:  
+<example>  
+    <input_spec>  
+        Implement a synchronous FIFO buffer with:  
+        - 8-bit data width, 16 entries depth  
+        - wr_en/rd_en controls with full/empty flags  
+        - Synchronous reset (active-high)  
+        All signals sampled on rising clock edge.  
+    </input_spec>  
+
+    <testbench_scenarios>  
+    {
+"scenario": "Consecutive Write-Read",
+"description": "Write 16 values (0x00-0x0F) then read them back, verifying flags and data integrity."
+}
+{  
+"scenario": "Alternating Operations",  
+"description": "Interleave write and read operations every clock cycle, checking pointer updates and flag stability."  
+},  
+{  
+"scenario": "Full Condition Handling",  
+"description": "Attempt to write to full FIFO (0xAA pattern) and verify data preservation and full flag persistence."  
+},  
+{
+"scenario": "Reset During Operation",
+"description": "Trigger reset when wr_ptr=4'hC, confirm empty state and pointer reset to 4'h0."
+}
+{  
+"scenario": "Concurrent Read/Write",  
+"description": "Simultaneously assert wr_en and rd_en for 10 cycles with different data patterns, checking coherency and flag behavior."  
+},  
+{  
+"scenario": "Pointer Wrap-around",  
+"description": "Fill/empty FIFO 3 consecutive times to verify circular buffer addressing and pointer rollover."  
+},
+{
+    "scenario": "Partial Fill/Drain",
+    "description": "Write 8 entries, then read 8 entries, checking almost_full/almost_empty flags at 75% capacity."
+}
+    </testbench_scenarios>  
+</example>
+
+Example 3:  
+<example>  
+    <input_spec>  
+        Design a PWM controller with:  
+        - 10-bit duty cycle resolution  
+        - 100MHz clock input  
+        - Synchronous duty cycle update register  
+        - Asynchronous emergency stop (active-low)  
+        Output should update immediately at period boundaries.  
+    </input_spec>  
+
+    <testbench_scenarios>  
+   {
+"scenario": "Duty Cycle Ramp",
+"description": "Increment duty cycle from 0x000 to 0x3FF in 0x100 steps, verifying pulse width with 1% tolerance."
+}
+{
+"scenario": "Asynchronous Abort",
+"description": "Assert emergency_stop_n during active pulse, verify output shutdown within 10ns (independent of clock)."
+}
+{  
+"scenario": "Boundary Values",  
+"description": "Test 0x000 (0%), 0x3FF (100%), and 0x200 (50%) duty cycles for exact period matching and edge alignment."  
+},  
+{  
+"scenario": "Concurrent Update",  
+"description": "Change duty cycle register mid-period while maintaining previous output, verify seamless transition at next period boundary."  
+},  
+{
+"scenario": "Clock Frequency Scaling",
+"description": "Modify input clock (50-200MHz) and validate PWM period inversely scales with frequency (±1 cycle error)."
+}
+{  
+"scenario": "Invalid Input Handling",  
+"description": "Apply out-of-range duty values (>0x3FF) and verify register clamping behavior and output stability."  
+}  
+    </testbench_scenarios>  
+</example> 
 """
 
 
@@ -181,7 +263,7 @@ class TB_Generator_Scenario:
                 content=GENERATION_PROMPT.format(
                     description=input_spec,
                     module_header=header,
-                    example=ONE_SHOT_EXAMPLE,
+                    example=FEW_SHOT_EXAMPLE,
                     instruction=EXTRA_PROMPT,
                 ),
                 role=MessageRole.USER,
