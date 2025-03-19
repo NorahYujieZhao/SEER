@@ -15,7 +15,7 @@ logger = get_logger(__name__)
 SYSTEM_PROMPT = r"""
 You are an expert in RTL design and code optimization.
 Your job is to use actions to edit and optimize the provided SystemVerilog RTL code.
-Based on the supplied Verilog testbench and coverage report, you must identify and remove redundant parts of the RTL code that are causing the output line coverage to be less than 100%.
+Based on the supplied Verilog testbench and coverage report, you must identify and remove redundant parts of the RTL code that are causing the branch coverage to be less than 100%.
 Ensure that the modified RTL code retains the intended functionality as verified by the testbench.
 Moreover, you need to ensure 100% functionality correct rate when running the same testbench using the modified RTL code, since the original RTL code already reached the 100% functionality correct rate.
 The actions below are available:
@@ -35,7 +35,7 @@ ACTION_PROMPT = r"""
 INIT_EDITION_PROMPT = r"""
 The following information is provided to assist your work:
 1. A Verilog testbench which has been verified correct.
-2. A coverage report indicating that the RTL module's output line coverage is below 100% due to redundant code.
+2. A coverage report indicating that the RTL module's branch coverage is below 100% due to redundant code.
 3. The original RTL code that requires modification.
 <testbench>
 {testbench}
@@ -48,16 +48,16 @@ The following information is provided to assist your work:
 </rtl_code>
 
 [Hints]:
-- Analyze the testbench and coverage report to pinpoint which parts of the RTL code are not being exercised.
-- Identify redundant logic that can be safely removed or refactored without affecting the intended behavior.
-- Ensure that the modifications lead to 100% line coverage while maintaining the functional integrity of the module.
+- Analyze the testbench and coverage report to pinpoint which branches of the RTL code are not being exercised.
+- Identify redundant conditional statements that can be safely removed or refactored without affecting the intended behavior.
+- Ensure that the modifications lead to 100% branch coverage while maintaining the functional integrity of the module.
 - Remember, the modified RTL code must achieve 100% functionality correctness with the given testbench, as the original RTL code already did so.
 """
 
 EXTRA_ORDER_PROMPT = r"""
 1. Understand the overall functionality of the RTL module as implied by the testbench.
-2. Examine the coverage report to locate the code sections with redundancy that prevent full coverage.
-3. Provide detailed reasoning in natural language about the changes you plan to make to remove redundancy and achieve 100% line coverage.
+2. Examine the coverage report to locate the conditional statements with redundancy that prevent full branch coverage.
+3. Provide detailed reasoning in natural language about the changes you plan to make to remove redundancy and achieve 100% branch coverage.
 4. Do not modify the testbench or the coverage report; only adjust the RTL code.
 5. Ensure that all outputs and internal signals maintain their correct behavior after modifications.
 6. Use clear, well-commented RTL code, and ensure proper declarations (e.g., using logic, wire, or reg as appropriate).
@@ -68,17 +68,6 @@ The file content which is going to be edited is given below:
 {rtl_code}
 </rtl_code>
 """
-
-# The prompt above comes from:
-# @misc{ho2024verilogcoderautonomousverilogcoding,
-#       title={VerilogCoder: Autonomous Verilog Coding Agents with Graph-based Planning and Abstract Syntax Tree (AST)-based Waveform Tracing Tool},
-#       author={Chia-Tung Ho and Haoxing Ren and Brucek Khailany},
-#       year={2024},
-#       eprint={2408.08927},
-#       archivePrefix={arXiv},
-#       primaryClass={cs.AI},
-#       url={https://arxiv.org/abs/2408.08927},
-# }
 
 ACTION_OUTPUT_PROMPT = r"""
 Output after running given action:
@@ -109,7 +98,7 @@ class RTLEditorStepOutput(BaseModel):
     action_input: ActionInput
 
 
-class RTLCoverageEditor:
+class RTLBranchCoverageEditor:
     def __init__(
         self,
         token_counter: TokenCounter,
@@ -121,15 +110,13 @@ class RTLCoverageEditor:
         self.succeed_history_max_length = 2
         self.fail_history_max_length = 2
         self.is_done = False
-        # self.last_mismatch_cnt: int | None = None
         self.last_coverage: float | None = None
         self.sim_reviewer = sim_reviewer
 
     def reset(self):
         self.is_done = False
         self.history = []
-        # self.last_mismatch_cnt: int | None = None
-        self.last_coverage: float | None = None
+        self.last_coverage = None
 
     def write_rtl(self, content: str) -> None:
         with open(self.rtl_path, "w") as f:
@@ -149,15 +136,23 @@ class RTLCoverageEditor:
                 "is_syntax_pass": False,
                 "is_sim_pass": False,
                 "error_msg": syntax_output,
-                "coverage": 0.0,
+                "line_coverage": 0.0,
+                "branch_coverage": 0.0,
             }
-        is_sim_pass, coverage, sim_output = self.sim_reviewer.coverage_review()
-        assert isinstance(coverage, float)
+
+        # Get both line and branch coverage
+        is_sim_pass, line_coverage, branch_coverage, sim_output = (
+            self.sim_reviewer.coverage_review_tb()
+        )
+        assert isinstance(line_coverage, float)
+        assert isinstance(branch_coverage, float)
+
         return {
             "is_syntax_pass": True,
             "is_sim_pass": is_sim_pass,
             "error_msg": "" if is_sim_pass else sim_output,
-            "coverage": coverage,
+            "line_coverage": line_coverage,
+            "branch_coverage": branch_coverage,
         }
 
     def judge_replace_action_execution(
@@ -182,7 +177,7 @@ class RTLCoverageEditor:
             self.write_rtl(old_file_content)
             return ret
 
-        coverage = ret["coverage"]
+        coverage = ret["branch_coverage"]
         if not ret["is_sim_pass"]:
             # Must maintain 100% functionality
             logger.info("Simulation failed. Action not executed.")
@@ -191,17 +186,23 @@ class RTLCoverageEditor:
 
         if self.last_coverage is not None and coverage <= self.last_coverage:
             # Only accept changes that improve coverage
-            logger.info(f"Coverage {coverage} not improved from {self.last_coverage}")
+            logger.info(
+                f"Branch coverage {coverage}% not improved from {self.last_coverage}%"
+            )
             self.write_rtl(old_file_content)
-            ret["error_msg"] += "Coverage not improved. Action not executed."
-
+            ret["error_msg"] = "Branch coverage not improved. Action not executed."
         else:
             # Accept change
-            logger.info(f"Coverage improved from {self.last_coverage} to {coverage}")
+            logger.info(
+                f"Branch coverage improved from {self.last_coverage}% to {coverage}%"
+            )
             self.last_coverage = coverage
             ret["is_action_executed"] = True
-            if abs(coverage - 100.0) < 0.001:  # Check if we reached 100%
+            if (
+                abs(coverage - 100.0) < 0.001
+            ):  # Check if we reached 100% branch coverage
                 self.is_done = True
+                logger.info("Achieved 100% branch coverage!")
 
         return ret
 
@@ -213,26 +214,26 @@ class RTLCoverageEditor:
         Syntax check and coverage check are performed after the replacement.
         The replacement must:
         1. Maintain 100% functional correctness (all testbench cases must still pass)
-        2. Improve line coverage by removing redundant code
+        2. Improve branch coverage by removing redundant conditional statements
         3. Only replace content that appears exactly once in the file
 
         Input:
             old_content: The old content of the file.
             new_content: The new content to replace the matching line.
         Output:
-            A dictionary containing :
+            A dictionary containing:
                 1. Whether the action is executed.
                 2. The error message if the action is not executed.
-                3. Other information like Current coverage percentage (coverage), syntax check result and simulation check result.
+                3. Other information like current branch coverage percentage, syntax check result and simulation check result.
 
         Example:
             Before:
             <example_rtl>
                 always @(posedge clk) begin
                     if (a && b && c) begin
-                        out <= 1;  // This line is covered
+                        out <= 1;  // This branch is covered
                     end else if (a && b) begin
-                        out <= 1;  // This line is never reached (redundant)
+                        out <= 1;  // This branch is never reached (redundant)
                     end
                 end
             </example_rtl>
@@ -248,7 +249,7 @@ class RTLCoverageEditor:
             <example_rtl>
                 always @(posedge clk) begin
                     if (a && b) begin
-                        out <= 1;  // This line is now always reachable
+                        out <= 1;  // This branch is now always reachable
                     end
                 end
             </example_rtl>
@@ -266,18 +267,9 @@ class RTLCoverageEditor:
         if occurrences == 0:
             return {
                 "is_action_executed": False,
-                "new_content": "",
-                "coverage": 0.0,
                 "error_msg": f"Cannot find old_content in current RTL. remove_content_redundancy not executed.",
+                "branch_coverage": self.last_coverage or 0.0,
             }
-        # elif occurrences > 1:
-        #     return {
-        #         "is_action_executed": False,
-        #         "new_content": "",
-        #         "coverage": 0.0,
-        #         "error_msg": f"Find multiple old_content in current RTL. remove_content_redundancy not executed.",
-        #     }
-        # whether need to check if new_content is unique in the file
 
         # Replace old_str with new_str
         new_file_content = old_file_content.replace(old_content, new_content)
@@ -285,7 +277,6 @@ class RTLCoverageEditor:
         ret = self.judge_replace_action_execution(
             old_content, new_content, "remove_content_redundancy", old_file_content
         )
-        # ret["new_file_content"] = new_file_content
         return ret
 
     def generate(self, messages: List[ChatMessage]) -> ChatResponse:
@@ -380,13 +371,6 @@ class RTLCoverageEditor:
         testbench: str,
         coverage_report: str,
     ) -> Tuple[bool, str]:
-        # 1. Initialize the history
-        # 2. Generate the initial prompt messages (with functool information)
-        # 3. Loop for the max trials:
-        #     - Generate the order prompt messages
-        #     - Generate & parse the response
-        #     - Generate & parse the tool call
-        #     - If called
         if isinstance(self.token_counter, TokenCounterCached):
             self.token_counter.set_enable_cache(True)
         self.history = []
@@ -405,11 +389,13 @@ class RTLCoverageEditor:
 
         # Get initial coverage
         initial_check = self.replace_sanity_check()
-        self.last_coverage = initial_check["coverage"]
-        logger.info(f"Initial line coverage: {self.last_coverage}%")
+        self.last_coverage = initial_check[
+            "branch_coverage"
+        ]  # Key change: use branch coverage
+        logger.info(f"Initial branch coverage: {self.last_coverage}%")
 
         if self.last_coverage == 100.0:
-            logger.info("Initial coverage is 100%. No need to edit.")
+            logger.info("Initial branch coverage is 100%. No need to edit.")
             return (True, rtl_code)
         if not initial_check["is_syntax_pass"]:
             logger.info("Syntax check failed. No need to edit.")
@@ -424,7 +410,9 @@ class RTLCoverageEditor:
         succeed_history: List[ChatMessage] = []
         fail_history: List[ChatMessage] = []
         for i in range(self.max_trials):
-            logger.info(f"RTL Editing: round {i + 1} / {self.max_trials}")
+            logger.info(
+                f"RTL Branch Coverage Optimization: round {i + 1} / {self.max_trials}"
+            )
             response = self.generate(
                 self.history
                 + succeed_history
@@ -434,7 +422,9 @@ class RTLCoverageEditor:
             new_contents = [response.message]
             action_input = self.parse_output(response).action_input
             action_output = self.run_action(action_input)
-            if self.is_done:  # Reached 100% coverage while maintaining functionality
+            if (
+                self.is_done
+            ):  # Reached 100% branch coverage while maintaining functionality
                 is_pass = True
                 break
             new_contents.extend(self.get_action_output_message(action_output))
@@ -442,7 +432,7 @@ class RTLCoverageEditor:
 
             if action_output["is_action_executed"]:
                 logger.info(
-                    f"Coverage improved to: {action_output.get('coverage', 0.0)}%"
+                    f"Branch coverage improved to: {action_output.get('branch_coverage', 0.0)}%"
                 )
                 fail_history = []
                 succeed_history.extend(new_contents)
