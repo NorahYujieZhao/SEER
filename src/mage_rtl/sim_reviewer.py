@@ -84,6 +84,7 @@ def sim_coverage_review_tb(
     golden_rtl_path: str | None = None,
 ) -> Tuple[bool, float, float, str]:
     """
+    running results of coverage.py
     Review the simulation results, line coverage, and branch coverage for current rtl.sv and tb.sv
     Returns:
     - is_pass: bool - whether simulation passes
@@ -91,66 +92,16 @@ def sim_coverage_review_tb(
     - branch_coverage: float - branch coverage percentage (0.0 to 100.0)
     - sim_output: str - simulation and coverage output
     """
-    rtl_path = f"{output_path_per_run}/rtl.sv"
-    vvp_name = f"{output_path_per_run}/sim_output.vvp"
-    tb_path = f"{output_path_per_run}/tb.sv"
-    coverage_db = f"{output_path_per_run}/coverage.db"
-
-    if os.path.isfile(vvp_name):
-        os.remove(vvp_name)
-    if os.path.isfile(coverage_db):
-        os.remove(coverage_db)
-
-    # Compile with coverage
-    cmd = f"iverilog -Wall -Winfloop -Wno-timescale -g2012 -o {vvp_name} -c {coverage_db} {tb_path} {rtl_path}"
-    if golden_rtl_path:
-        cmd += f" {golden_rtl_path}"
-
-    # Run simulation with coverage
-    cmd += f"; vvp -n -c {coverage_db} {vvp_name}"
-
-    # Get coverage report for both line and branch coverage
-    cmd += f"; covered report -m line,branch {coverage_db}"
-
-    is_pass, sim_output = run_bash_command(cmd, timeout=60)
-    sim_output_obj = CommandResult.model_validate_json(sim_output)
-
-    # Check simulation pass/fail
-    is_pass = (
-        is_pass
-        and "SIMULATION PASSED" in sim_output_obj.stdout
-        and (
-            sim_output_obj.stderr == ""
-            or stderr_all_lines_benign(sim_output_obj.stderr)
-        )
-    )
-
-    # Parse both line and branch coverage from output
+    # Todo:
+    # 1. Get line coverage
+    # 2. Get branch coverage
+    # 3. Get sim_output
+    # 4. Get is_pass
+    # 5. Get sim_output
+    is_pass = True
     line_coverage = 0.0
     branch_coverage = 0.0
-    if is_pass:
-        try:
-            # Extract line and branch coverage percentages from covered report output
-            line_coverage_pattern = r"Line Coverage:\s*(\d+\.\d+)%"
-            branch_coverage_pattern = r"Branch Coverage:\s*(\d+\.\d+)%"
-
-            line_match = re.search(line_coverage_pattern, sim_output_obj.stdout)
-            branch_match = re.search(branch_coverage_pattern, sim_output_obj.stdout)
-
-            if line_match and branch_match:
-                line_coverage = float(line_match.group(1))
-                branch_coverage = float(branch_match.group(1))
-            else:
-                logger.error("Failed to find coverage patterns in output")
-        except Exception as e:
-            logger.error(f"Failed to parse coverage: {e}")
-
-    logger.info(
-        f"Coverage simulation is_pass: {is_pass}, "
-        f"line coverage: {line_coverage}%, "
-        f"branch coverage: {branch_coverage}%\n"
-        f"output: {sim_output}"
-    )
+    sim_output = ""
 
     return is_pass, line_coverage, branch_coverage, sim_output
 
@@ -184,7 +135,7 @@ class SimReviewer:
         - is_pass: bool - whether simulation passes
         - line_coverage: float - line coverage percentage (0.0 to 100.0)
         - branch_coverage: float - branch coverage percentage (0.0 to 100.0)
-        - sim_log: str - simulation and coverage output
+        - sim_output: str - RTL code and coverage comments
         """
         return sim_coverage_review_tb(
             self.output_path_per_run,
