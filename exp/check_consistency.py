@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -8,6 +9,88 @@ from mage_rtl.log_utils import get_logger
 from mage_rtl.token_counter import TokenCounter
 
 logger = get_logger(__name__)
+
+SYSTEM_PROMPT = r"""
+You are an expert in RTL design and verification.
+Your task is to review a natural-language RTL specification and a time-series of input/output signal data (in JSON format).
+You must determine whether the observed input/output behavior matches the expected logic described in the RTL specification.
+If there are mismatches, identify them and propose or describe the needed actions to resolve them (or highlight the issues).
+"""
+
+ACTION_PROMPT = r"""
+<action>
+<command>{command}</command>
+<signature>{signature}</signature>
+<description>{description}</description>
+</action>
+"""
+
+INIT_EDITION_PROMPT = r"""
+The following information is provided to assist your work:
+1. RTL specification: A natural-language RTL specification describing the expected hardware behavior.
+2. scenario_discription: Additional context or scenario details that help understand expected functionalities or edge conditions.
+3. testbench: A Verilog testbench provided as a time-series of input/output signal data (in JSON format). Each entry represents simulation time steps showing input signals and the observed outputs.
+
+<RTL specification>
+{spec}
+</RTL specification>
+
+<scenario_discription>
+{scenario_discription}
+</scenario_discription>
+
+<testbench>
+{testbench}
+</testbench>
+
+[Task]:
+1. **Interpret the RTL specification** and understand the intended logic.
+2. **Analyze the scenario_discription** for additional context or specific operational corners.
+3. **Review the testbench** (time-series JSON) and compare the observed input/output sequences against the expected behavior from the RTL specification.
+4. Determine whether the observed behavior **matches** or **does not match** what the specification dictates.
+   - If it does not match, **identify** and **describe** the mismatch or possible cause of the discrepancy.
+5. Compile the results into the final structure, producing a scenario-by-scenario breakdown:
+   - For each scenario (e.g., "Scenario1", "Scenario2", etc.):
+     - Provide a short textual explanation of the reasoning (why you believe it matches or not).
+     - Indicate "yes" or "no" for `if matches`.
+     - If "no", fill in `unmatched action` with a brief explanation of the mismatch or an action you would take to resolve it.
+
+When you finish your analysis, structure the output as shown below, enclosed by the <action_output> tags.
+
+NOTE:
+- Do **not** alter the content or format of the testbench; only analyze it.
+- Do **not** alter the RTL specification; only interpret it.
+- The final answer should strictly follow the JSON format specified in the EXAMPLE_OUTPUT.
+
+"""
+
+EXTRA_ORDER_PROMPT = r"""
+1. Review all provided information in detail.
+2. Ensure your analysis aligns with the specified RTL logic and scenario context.
+3. For each scenario in the input data, provide a concise explanation of whether the observed signals match the specification.
+4. If mismatches are found, specify them clearly, including what is wrong or how to correct it.
+5. Format the final result according to the EXAMPLE_OUTPUT JSON structure, placing it inside the <action_output> tags as instructed.
+"""
+
+ACTION_OUTPUT_PROMPT = r"""
+Output after running given action:
+<action_output>
+{action_output}
+</action_output>
+"""
+
+EXAMPLE_OUTPUT = {
+    "Scenario1": {
+        "reasoning": "Here's why it matches or does not match.",
+        "if matches": "yes",
+        "unmatched action": "",
+    },
+    "Scenario2": {
+        "reasoning": "Here's why it matches or does not match.",
+        "if matches": "no",
+        "unmatched action": "Potential mismatch explanation or recommended action.",
+    },
+}
 
 
 class ScenarioResult(BaseModel):
@@ -25,13 +108,63 @@ class ConsistencyChecker:
         self.token_counter = token_counter
         self.exp_dir = Path(exp_dir)
 
-        # Load prompt template
-        with open(self.exp_dir / "check_consistency_prompt.txt", "r") as f:
-            prompt_content = f.read()
-            self.system_prompt = prompt_content.split("ANALYSIS_PROMPT")[0].strip()
-            self.analysis_prompt = prompt_content.split('ANALYSIS_PROMPT = r"""')[
-                1
-            ].strip()[:-4]
+    def get_init_prompt_messages(self) -> List[ChatMessage]:
+        """Generate initial prompt messages."""
+        system_prompt = ChatMessage(content=SYSTEM_PROMPT, role=MessageRole.SYSTEM)
+
+        spec, scenario, testbench = self.load_input_files()
+
+        init_prompt = ChatMessage(
+            content=INIT_EDITION_PROMPT.format(
+                spec=spec, scenario_discription=scenario, testbench=testbench
+            ),
+            role=MessageRole.USER,
+        )
+
+        return [system_prompt, init_prompt]
+
+    def get_order_prompt_messages(self) -> List[ChatMessage]:
+        """Generate order prompt messages."""
+        return [
+            ChatMessage(
+                content=EXTRA_ORDER_PROMPT
+                + "\n"
+                + f"EXAMPLE_OUTPUT = {json.dumps(EXAMPLE_OUTPUT, indent=4)}",
+                role=MessageRole.USER,
+            ),
+        ]
+
+    def chat(self) -> Tuple[bool, str]:
+        """Single chat interaction to check consistency."""
+        if isinstance(self.token_counter, TokenCounterCached):
+            self.token_counter.set_enable_cache(True)
+        self.token_counter.set_cur_tag(self.__class__.__name__)
+
+        # Generate response
+        messages = self.get_init_prompt_messages() + self.get_order_prompt_messages()
+        response = self.generate(messages)
+
+        # Parse response
+        scenario_results = self.parse_response(response.message.content)
+
+        # Check results
+        all_match = all(
+            result.if_matches == "yes" for result in scenario_results.values()
+        )
+
+        if all_match:
+            return True, "All scenarios match the specification."
+
+        # If we get here, there are mismatches
+        error_msg = (
+            "The following scenarios don't match the specification:\n"
+            + "\n".join(
+                f"Scenario {name}: {result.unmatched_action}"
+                for name, result in scenario_results.items()
+                if result.if_matches == "no"
+            )
+        )
+        return False, error_msg
 
     def load_input_files(self) -> Tuple[str, str, str]:
         """Load the spec, scenario description and testbench files."""
@@ -90,50 +223,6 @@ class ConsistencyChecker:
 
         return scenarios
 
-    def check_consistency(self) -> Tuple[bool, str, Dict[str, ScenarioResult]]:
-        """
-        Check consistency between spec and testbench.
-        Returns:
-            - bool: True if all scenarios match
-            - str: Error message if any scenarios don't match
-            - Dict: Parsed scenario results
-        """
-        spec, scenario, testbench = self.load_input_files()
-
-        # Prepare messages
-        messages = [
-            ChatMessage(content=self.system_prompt, role=MessageRole.SYSTEM),
-            ChatMessage(
-                content=self.analysis_prompt.format(
-                    spec=spec, scenario_discription=scenario, testbench=testbench
-                ),
-                role=MessageRole.USER,
-            ),
-        ]
-
-        # Generate and parse response
-        response = self.generate(messages)
-        scenario_results = self.parse_response(response.message.content)
-
-        # Check if all scenarios match
-        all_match = all(
-            result.if_matches == "yes" for result in scenario_results.values()
-        )
-
-        error_msg = ""
-        if not all_match:
-            mismatched = [
-                f"Scenario {scenario}: {result.unmatched_action}"
-                for scenario, result in scenario_results.items()
-                if result.if_matches == "no"
-            ]
-            error_msg = (
-                "The following scenarios don't match the specification:\n"
-                + "\n".join(mismatched)
-            )
-
-        return all_match, error_msg, scenario_results
-
 
 def check_and_fix_implementation(exp_dir: str, token_counter: TokenCounter) -> bool:
     """
@@ -141,33 +230,75 @@ def check_and_fix_implementation(exp_dir: str, token_counter: TokenCounter) -> b
     Returns True if all scenarios match after potential fixes.
     """
     checker = ConsistencyChecker(token_counter, exp_dir)
-    all_match, error_msg, results = checker.check_consistency()
+    success, message = checker.chat()
 
-    if not all_match:
-        logger.error(f"Consistency check failed: {error_msg}")
+    if not success:
+        logger.error(f"Consistency check failed: {message}")
 
-        # Here you would implement logic to fix pychecker_0.py
-        # This could involve generating a new prompt to fix the implementation
-        # based on the error_msg
+        # Load necessary files for fix generation
+        exp_dir_path = Path(exp_dir)
+        with open(exp_dir_path / "spec.txt", "r") as f:
+            spec = f.read()
+        with open(exp_dir_path / "TB_scenario.txt", "r") as f:
+            scenario = f.read()
+        with open(exp_dir_path / "testbench.json", "r") as f:
+            testbench = f.read()
+        with open(exp_dir_path / "pychecker_0.py", "r") as f:
+            generated_python_code = f.read()
 
-        # For example:
-        fix_prompt = f"""
-        The current implementation in pychecker_0.py has consistency issues:
-        {error_msg}
+        # Prepare messages for fix generation
+        messages = [
+            ChatMessage(content=SYSTEM_PROMPT, role=MessageRole.SYSTEM),
+            ChatMessage(
+                content=INIT_EDITION_PROMPT.format(
+                    spec=spec,
+                    scenario_discription=scenario,
+                    testbench=testbench,
+                    coverage_report=message,  # Use the error message as coverage report
+                    generated_python_code=generated_python_code,
+                ),
+                role=MessageRole.USER,
+            ),
+            ChatMessage(
+                content=EXTRA_ORDER_PROMPT.format(
+                    generated_python_code=generated_python_code
+                ),
+                role=MessageRole.USER,
+            ),
+        ]
 
-        Please modify the implementation to fix these issues while maintaining
-        the correct behavior for other scenarios.
-        """
-        print(fix_prompt)
+        # Generate fix
+        resp, _ = token_counter.count_chat(messages)
 
-        # TODO: Implement the fix logic using the fix_prompt
-        # This would involve:
-        # 1. Generating a response with the fix_prompt
-        # 2. Parsing the response to get code changes
-        # 3. Applying changes to pychecker_0.py
-        # 4. Running consistency check again
+        # Extract the modified code from the response
+        response_content = resp.message.content
+        if "<modified_python_code>" in response_content:
+            modified_code = (
+                response_content.split("<modified_python_code>")[1]
+                .split("</modified_python_code>")[0]
+                .strip()
+            )
+        else:
+            # Fallback: try to extract the first code block
+            code_blocks = response_content.split("```python")
+            if len(code_blocks) > 1:
+                modified_code = code_blocks[1].split("```")[0].strip()
+            else:
+                logger.error("Could not extract modified code from response")
+                return False
 
-    return all_match
+        # Save the modified code
+        output_path = exp_dir_path / "pychecker_0_new.py"
+        with open(output_path, "w") as f:
+            f.write(modified_code)
+
+        logger.info(f"Modified code saved to: {output_path}")
+
+        # Run consistency check again with new implementation
+        # Note: You might want to implement a mechanism to use the new file
+        # return check_and_fix_implementation(exp_dir, token_counter)
+
+    return success
 
 
 if __name__ == "__main__":
