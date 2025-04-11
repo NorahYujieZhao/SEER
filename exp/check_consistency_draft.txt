@@ -1,0 +1,486 @@
+Given the following RTL code specification and a pair of signal input/output JSON files, please analyze whether the observed input/output behavior is consistent with the expected behavior described in the RTL specification. Identify any mismatches or logical inconsistencies between the RTL logic and the actual input/output data.
+
+Inputs:
+
+RTL code natural language specification
+
+Input and Output signal JSON file (time series of signal values) like format:
+
+{{
+  "scenario": "scenarioNameNoPunctuation",
+  "input variable": [
+    {{
+      "clock cycles": "integer specifying number of clock cycles",
+      "input_variable_name1": ["binary_sequence_string_1", "binary_sequence_string_2", "..."],
+      "input_variable_name2": ["binary_sequence_string_1", "binary_sequence_string_2", "..."],
+      "input_variable_name3": ["binary_sequence_string_1", "binary_sequence_string_2", "..."]
+    }},
+  ]
+   "output variable": [
+    {{
+      "clock cycles": "integer specifying number of clock cycles",
+      "ioutput_variable_name1": ["binary_sequence_string_1", "binary_sequence_string_2", "..."],
+      "output_variable_name2": ["binary_sequence_string_1", "binary_sequence_string_2", "..."],
+      "ioutput_variable_name3": ["binary_sequence_string_1", "binary_sequence_string_2", "..."]
+    }},
+  ]
+}}
+
+
+
+Please perform the following:
+
+Analysis the RTL specification and extract the logical behavior of the system.
+
+Report whether the behavior of each scenario matches, and if not, explain where and how it diverges from the expected logic.
+
+Give me a result in the format:
+"Reasoning": "Analysis the spec and function"
+
+Scenario1:
+"reasoning":"",
+"if matches": yes or no
+"unmatched action":"",
+
+
+
+<RTL specification>
+{spec}
+</RTL specification>
+
+<scenario_discription>
+{scenario_discription}
+</scenario_discription>
+
+<testbench>
+{testbench}
+</testbench>
+
+
+
+Build a four-bit shift register that also acts as a down counter. Data is shifted in most-significant-bit first when shift_ena is 1. The number currently in the shift register is decremented when count_ena is 1. Since the full system doesn't ever use shift_ena and count_ena together, it does not matter what your circuit does if both control inputs are 1 (This mainly means that it doesn't matter which case gets higher priority).
+
+scenario: Basic Shift Operation
+description: Shift in a sequence of bits through data input with shift_ena high and count_ena low verifying MSB first operation over multiple clock cycles
+
+scenario: Basic Down Count Operation
+description: Load a value via shift operation then enable count_ena and verify the value decrements correctly on each clock cycle
+
+scenario: Counter Rollover
+description: Set register to 0000 via shift operations then enable counting to verify rollover from 0000 to 1111
+
+scenario: Shift Register Boundary
+description: Shift in alternating 1s and 0s to verify all bits can hold both values and shift correctly
+
+scenario: Counter Maximum Value
+description: Load 1111 via shift operations then verify proper decrement sequence from maximum value
+
+scenario: Mode Switching
+description: Alternate between shift_ena and count_ena modes verifying proper operation when switching between modes
+
+scenario: Clock Edge Behavior
+description: Verify all operations shift and count occur only on the rising edge of the clock
+
+scenario: Initial State
+description: Verify the register powers up or initializes to a known state before any operations
+
+[
+  {
+    "scenario": "BasicShiftOperation",
+    "input variable": [
+      {
+        "clock cycles": 4,
+        "shift_ena": [
+          "1",
+          "1",
+          "1",
+          "1"
+        ],
+        "count_ena": [
+          "0",
+          "0",
+          "0",
+          "0"
+        ],
+        "data": [
+          "1",
+          "0",
+          "1",
+          "1"
+        ]
+      }
+    ],
+    "output variable": [
+      {
+        "clock cycles": 4,
+        "q": [
+          "0001",
+          "0010",
+          "0101",
+          "1011"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "BasicDownCountOperation",
+    "input variable": [
+      {
+        "clock cycles": 4,
+        "shift_ena": [
+          "1",
+          "1",
+          "1",
+          "1"
+        ],
+        "count_ena": [
+          "0",
+          "0",
+          "0",
+          "0"
+        ],
+        "data": [
+          "1",
+          "0",
+          "1",
+          "0"
+        ]
+      },
+      {
+        "clock cycles": 3,
+        "shift_ena": [
+          "0",
+          "0",
+          "0"
+        ],
+        "count_ena": [
+          "1",
+          "1",
+          "1"
+        ],
+        "data": [
+          "0",
+          "0",
+          "0"
+        ]
+      }
+    ],
+    "output variable": [
+      {
+        "clock cycles": 4,
+        "q": [
+          "0001",
+          "0010",
+          "0101",
+          "1010"
+        ]
+      },
+      {
+        "clock cycles": 3,
+        "q": [
+          "1001",
+          "1000",
+          "0111"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "CounterRollover",
+    "input variable": [
+      {
+        "clock cycles": 4,
+        "shift_ena": [
+          "1",
+          "1",
+          "1",
+          "1"
+        ],
+        "count_ena": [
+          "0",
+          "0",
+          "0",
+          "0"
+        ],
+        "data": [
+          "0",
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "clock cycles": 2,
+        "shift_ena": [
+          "0",
+          "0"
+        ],
+        "count_ena": [
+          "1",
+          "1"
+        ],
+        "data": [
+          "0",
+          "0"
+        ]
+      }
+    ],
+    "output variable": [
+      {
+        "clock cycles": 4,
+        "q": [
+          "0000",
+          "0000",
+          "0000",
+          "0000"
+        ]
+      },
+      {
+        "clock cycles": 2,
+        "q": [
+          "1111",
+          "1110"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "ShiftRegisterBoundary",
+    "input variable": [
+      {
+        "clock cycles": 4,
+        "shift_ena": [
+          "1",
+          "1",
+          "1",
+          "1"
+        ],
+        "count_ena": [
+          "0",
+          "0",
+          "0",
+          "0"
+        ],
+        "data": [
+          "1",
+          "0",
+          "1",
+          "0"
+        ]
+      }
+    ],
+    "output variable": [
+      {
+        "clock cycles": 4,
+        "q": [
+          "0001",
+          "0010",
+          "0101",
+          "1010"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "CounterMaximumValue",
+    "input variable": [
+      {
+        "clock cycles": 4,
+        "shift_ena": [
+          "1",
+          "1",
+          "1",
+          "1"
+        ],
+        "count_ena": [
+          "0",
+          "0",
+          "0",
+          "0"
+        ],
+        "data": [
+          "1",
+          "1",
+          "1",
+          "1"
+        ]
+      },
+      {
+        "clock cycles": 4,
+        "shift_ena": [
+          "0",
+          "0",
+          "0",
+          "0"
+        ],
+        "count_ena": [
+          "1",
+          "1",
+          "1",
+          "1"
+        ],
+        "data": [
+          "0",
+          "0",
+          "0",
+          "0"
+        ]
+      }
+    ],
+    "output variable": [
+      {
+        "clock cycles": 4,
+        "q": [
+          "0001",
+          "0011",
+          "0111",
+          "1111"
+        ]
+      },
+      {
+        "clock cycles": 4,
+        "q": [
+          "1110",
+          "1101",
+          "1100",
+          "1011"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "ModeSwitching",
+    "input variable": [
+      {
+        "clock cycles": 2,
+        "shift_ena": [
+          "1",
+          "1"
+        ],
+        "count_ena": [
+          "0",
+          "0"
+        ],
+        "data": [
+          "1",
+          "0"
+        ]
+      },
+      {
+        "clock cycles": 2,
+        "shift_ena": [
+          "0",
+          "0"
+        ],
+        "count_ena": [
+          "1",
+          "1"
+        ],
+        "data": [
+          "0",
+          "0"
+        ]
+      },
+      {
+        "clock cycles": 2,
+        "shift_ena": [
+          "1",
+          "1"
+        ],
+        "count_ena": [
+          "0",
+          "0"
+        ],
+        "data": [
+          "1",
+          "1"
+        ]
+      }
+    ],
+    "output variable": [
+      {
+        "clock cycles": 2,
+        "q": [
+          "0001",
+          "0010"
+        ]
+      },
+      {
+        "clock cycles": 2,
+        "q": [
+          "0001",
+          "0000"
+        ]
+      },
+      {
+        "clock cycles": 2,
+        "q": [
+          "0001",
+          "0011"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "ClockEdgeBehavior",
+    "input variable": [
+      {
+        "clock cycles": 4,
+        "shift_ena": [
+          "1",
+          "1",
+          "1",
+          "1"
+        ],
+        "count_ena": [
+          "0",
+          "0",
+          "0",
+          "0"
+        ],
+        "data": [
+          "1",
+          "0",
+          "1",
+          "0"
+        ]
+      }
+    ],
+    "output variable": [
+      {
+        "clock cycles": 4,
+        "q": [
+          "0001",
+          "0010",
+          "0101",
+          "1010"
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "InitialState",
+    "input variable": [
+      {
+        "clock cycles": 1,
+        "shift_ena": [
+          "0"
+        ],
+        "count_ena": [
+          "0"
+        ],
+        "data": [
+          "0"
+        ]
+      }
+    ],
+    "output variable": [
+      {
+        "clock cycles": 1,
+        "q": [
+          "0000"
+        ]
+      }
+    ]
+  }
+]
